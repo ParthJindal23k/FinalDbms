@@ -12,7 +12,7 @@ const Auth = () => {
   
   useEffect(() => {
     const registerParam = searchParams.get('register');
-    setIsRegister(registerParam === 'true');
+    setIsRegister(registerParam === 'true');  
   }, [searchParams]);
 
   return (

@@ -50,8 +50,12 @@ app.get("/api/test-db", async (req, res) => {
     });
   }
 });
-
 // API routes
+// server.js or app.js
+console.log("1");
+import searchRoutes from './routes/search.js';
+app.use('/api/search', searchRoutes);
+
 app.use("/api/auth", authRoutes);
 app.use("/api/companies", companyRoutes);
 app.use("/api/products", productRoutes);

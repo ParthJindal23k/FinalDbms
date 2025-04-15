@@ -1,20 +1,43 @@
 import express from "express";
-import pool from "../config/db.js";
+import pool from "../config/db.js"; // Make sure this exports a configured pg Pool instance
 
 const router = express.Router();
 
+// Helper: get logged-in user ID (replace with your auth logic)
+const getUserIdFromReq = (req) => {
+  return req.user?.id || "mock-user-id"; // replace this with real auth
+};
+
 // User Dashboard Endpoints
+
 router.get("/user-stats", async (req, res) => {
+  const userId = getUserIdFromReq(req);
   try {
-    // Mock data for now - would be replaced with actual database queries
-    const stats = {
-      totalTransactions: 12,
-      transactionValue: 15000,
-      activeShipments: 3,
-      pendingCustoms: 1
-    };
-    
-    res.json(stats);
+    const totalTx = await pool.query(
+      "SELECT COUNT(*) FROM transaction WHERE userId = $1",
+      [userId]
+    );
+    const valueTx = await pool.query(
+      "SELECT COALESCE(SUM(amount), 0) FROM transaction WHERE userId = $1",
+      [userId]
+    );
+    const activeShipments = await pool.query(
+      "SELECT COUNT(*) FROM shipment WHERE userId = $1 AND status != 'delivered'",
+      [userId]
+    );
+    const pendingCustoms = await pool.query(
+      `SELECT COUNT(*) FROM customs c 
+       JOIN shipment s ON s.id = c.shipmentId 
+       WHERE s.userId = $1 AND c.complianceStatus != 'cleared'`,
+      [userId]
+    );
+
+    res.json({
+      totalTransactions: Number(totalTx.rows[0].count),
+      transactionValue: Number(valueTx.rows[0].coalesce),
+      activeShipments: Number(activeShipments.rows[0].count),
+      pendingCustoms: Number(pendingCustoms.rows[0].count),
+    });
   } catch (error) {
     console.error("Error fetching user stats:", error);
     res.status(500).json({ error: "Failed to fetch user stats" });
@@ -22,32 +45,18 @@ router.get("/user-stats", async (req, res) => {
 });
 
 router.get("/user-shipments", async (req, res) => {
+  const userId = getUserIdFromReq(req);
   try {
-    // Mock data for now - would be replaced with actual database queries
-    const shipments = [
-      {
-        id: "shp-1001",
-        originCountry: "USA",
-        destinationCountry: "India",
-        status: "in-transit",
-        departureDate: "2023-11-15",
-        arrivalDate: "2023-12-05",
-        product: "Electronics",
-        company: "TechImports Inc."
-      },
-      {
-        id: "shp-1002",
-        originCountry: "China",
-        destinationCountry: "USA",
-        status: "customs-clearance",
-        departureDate: "2023-11-20",
-        arrivalDate: "2023-12-10",
-        product: "Textiles",
-        company: "FabricWorld Co."
-      }
-    ];
-    
-    res.json(shipments);
+    const result = await pool.query(
+      `SELECT s.id, s.originPort, s.destinationPort, s.status, 
+              s.estimatedDelivery, p.name AS product, c.name AS company
+       FROM shipment s
+       JOIN product p ON s.productId = p.id
+       JOIN company c ON s.companyId = c.id
+       WHERE s.userId = $1`,
+      [userId]
+    );
+    res.json(result.rows);
   } catch (error) {
     console.error("Error fetching user shipments:", error);
     res.status(500).json({ error: "Failed to fetch user shipments" });
@@ -55,36 +64,16 @@ router.get("/user-shipments", async (req, res) => {
 });
 
 router.get("/user-transactions", async (req, res) => {
+  const userId = getUserIdFromReq(req);
   try {
-    // Mock data for now - would be replaced with actual database queries
-    const transactions = [
-      {
-        id: "trx-2001",
-        date: "2023-11-10",
-        type: "import",
-        amount: 5000,
-        status: "completed",
-        counterparty: "Global Suppliers Ltd."
-      },
-      {
-        id: "trx-2002",
-        date: "2023-11-18",
-        type: "export",
-        amount: 7500,
-        status: "processing",
-        counterparty: "European Retailers GmbH"
-      },
-      {
-        id: "trx-2003",
-        date: "2023-10-25",
-        type: "import",
-        amount: 2500,
-        status: "completed",
-        counterparty: "Asian Manufacturing Co."
-      }
-    ];
-    
-    res.json(transactions);
+    const result = await pool.query(
+      `SELECT t.id, t.createdAt as date, t.amount, t.status, t.currency, c.name as counterparty 
+       FROM transaction t
+       JOIN company c ON t.companyId = c.id
+       WHERE t.userId = $1`,
+      [userId]
+    );
+    res.json(result.rows);
   } catch (error) {
     console.error("Error fetching user transactions:", error);
     res.status(500).json({ error: "Failed to fetch user transactions" });
@@ -93,16 +82,33 @@ router.get("/user-transactions", async (req, res) => {
 
 // Company Dashboard Endpoints
 router.get("/company-stats", async (req, res) => {
+  const companyId = req.query.companyId;
   try {
-    // Mock data for now - would be replaced with actual database queries
-    const stats = {
-      totalTransactions: 45,
-      transactionValue: 120000,
-      activeShipments: 8,
-      pendingCustoms: 2
-    };
-    
-    res.json(stats);
+    const totalTx = await pool.query(
+      "SELECT COUNT(*) FROM transaction WHERE companyId = $1",
+      [companyId]
+    );
+    const valueTx = await pool.query(
+      "SELECT COALESCE(SUM(amount), 0) FROM transaction WHERE companyId = $1",
+      [companyId]
+    );
+    const activeShipments = await pool.query(
+      "SELECT COUNT(*) FROM shipment WHERE companyId = $1 AND status != 'delivered'",
+      [companyId]
+    );
+    const pendingCustoms = await pool.query(
+      `SELECT COUNT(*) FROM customs c 
+       JOIN shipment s ON s.id = c.shipmentId 
+       WHERE s.companyId = $1 AND c.complianceStatus != 'cleared'`,
+      [companyId]
+    );
+
+    res.json({
+      totalTransactions: Number(totalTx.rows[0].count),
+      transactionValue: Number(valueTx.rows[0].coalesce),
+      activeShipments: Number(activeShipments.rows[0].count),
+      pendingCustoms: Number(pendingCustoms.rows[0].count),
+    });
   } catch (error) {
     console.error("Error fetching company stats:", error);
     res.status(500).json({ error: "Failed to fetch company stats" });
@@ -110,42 +116,18 @@ router.get("/company-stats", async (req, res) => {
 });
 
 router.get("/company-shipments", async (req, res) => {
+  const companyId = req.query.companyId;
   try {
-    // Mock data for now - would be replaced with actual database queries
-    const shipments = [
-      {
-        id: "shp-3001",
-        originCountry: "Japan",
-        destinationCountry: "USA",
-        status: "delivered",
-        departureDate: "2023-10-20",
-        arrivalDate: "2023-11-15",
-        product: "Automotive Parts",
-        customer: "CarTech Industries"
-      },
-      {
-        id: "shp-3002",
-        originCountry: "USA",
-        destinationCountry: "Germany",
-        status: "in-transit",
-        departureDate: "2023-11-05",
-        arrivalDate: "2023-11-25",
-        product: "Medical Supplies",
-        customer: "EuroHealth GmbH"
-      },
-      {
-        id: "shp-3003",
-        originCountry: "China",
-        destinationCountry: "USA",
-        status: "customs-clearance",
-        departureDate: "2023-11-10",
-        arrivalDate: "2023-12-01",
-        product: "Electronics",
-        customer: "TechRetail Inc."
-      }
-    ];
-    
-    res.json(shipments);
+    const result = await pool.query(
+      `SELECT s.id, s.originPort, s.destinationPort, s.status, s.estimatedDelivery, 
+              p.name AS product, u.email AS customer
+       FROM shipment s
+       JOIN product p ON s.productId = p.id
+       JOIN "user" u ON s.userId = u.id
+       WHERE s.companyId = $1`,
+      [companyId]
+    );
+    res.json(result.rows);
   } catch (error) {
     console.error("Error fetching company shipments:", error);
     res.status(500).json({ error: "Failed to fetch company shipments" });
@@ -153,44 +135,16 @@ router.get("/company-shipments", async (req, res) => {
 });
 
 router.get("/company-transactions", async (req, res) => {
+  const companyId = req.query.companyId;
   try {
-    // Mock data for now - would be replaced with actual database queries
-    const transactions = [
-      {
-        id: "trx-4001",
-        date: "2023-11-15",
-        type: "export",
-        amount: 18500,
-        status: "completed",
-        customer: "InternationalBuyers Ltd."
-      },
-      {
-        id: "trx-4002",
-        date: "2023-11-10",
-        type: "import",
-        amount: 12000,
-        status: "completed",
-        supplier: "Global Materials Inc."
-      },
-      {
-        id: "trx-4003",
-        date: "2023-11-20",
-        type: "export",
-        amount: 9500,
-        status: "processing",
-        customer: "Pacific Traders Co."
-      },
-      {
-        id: "trx-4004",
-        date: "2023-11-05",
-        type: "import",
-        amount: 7800,
-        status: "completed",
-        supplier: "EastAsian Suppliers"
-      }
-    ];
-    
-    res.json(transactions);
+    const result = await pool.query(
+      `SELECT t.id, t.createdAt as date, t.amount, t.status, t.currency, u.email as user 
+       FROM transaction t
+       JOIN "user" u ON t.userId = u.id
+       WHERE t.companyId = $1`,
+      [companyId]
+    );
+    res.json(result.rows);
   } catch (error) {
     console.error("Error fetching company transactions:", error);
     res.status(500).json({ error: "Failed to fetch company transactions" });
@@ -198,79 +152,35 @@ router.get("/company-transactions", async (req, res) => {
 });
 
 router.get("/company-products", async (req, res) => {
+  const companyId = req.query.companyId;
   try {
-    // Mock data for now - would be replaced with actual database queries
-    const products = [
-      {
-        id: "prod-5001",
-        name: "Smartphone X1",
-        category: "Electronics",
-        sku: "EL-SP-001",
-        price: 499.99,
-        stock: 150,
-        status: "active"
-      },
-      {
-        id: "prod-5002",
-        name: "Cotton T-Shirts",
-        category: "Apparel",
-        sku: "AP-TS-002",
-        price: 19.99,
-        stock: 500,
-        status: "active"
-      },
-      {
-        id: "prod-5003",
-        name: "Leather Wallet",
-        category: "Accessories",
-        sku: "AC-WL-003",
-        price: 39.99,
-        stock: 200,
-        status: "active"
-      },
-      {
-        id: "prod-5004",
-        name: "Wireless Earbuds",
-        category: "Electronics",
-        sku: "EL-WE-004",
-        price: 129.99,
-        stock: 75,
-        status: "low-stock"
-      },
-      {
-        id: "prod-5005",
-        name: "Bamboo Cutting Board",
-        category: "Kitchen",
-        sku: "KT-CB-005",
-        price: 24.99,
-        stock: 0,
-        status: "out-of-stock"
-      }
-    ];
-    
-    res.json(products);
+    const result = await pool.query(
+      `SELECT p.id, p.name, pc.category, p.stock, p.unitCost
+       FROM product p
+       JOIN productcategory pc ON p.hsCode = pc.hsCode
+       WHERE p.companyId = $1`,
+      [companyId]
+    );
+    res.json(result.rows);
   } catch (error) {
     console.error("Error fetching company products:", error);
     res.status(500).json({ error: "Failed to fetch company products" });
   }
 });
 
-// User profile endpoint
+// User Profile
 router.get("/user/profile", async (req, res) => {
+  const userId = getUserIdFromReq(req);
   try {
-    // Mock data for now - would be replaced with actual database queries
-    const profile = {
-      id: 1,
-      email: "user@example.com",
-      name: "John Doe",
-      role: "user"
-    };
-    
-    res.json(profile);
+    const result = await pool.query(
+      "SELECT id, email, role FROM \"user\" WHERE id = $1",
+      [userId]
+    );
+    res.json(result.rows[0]);
   } catch (error) {
     console.error("Error fetching user profile:", error);
     res.status(500).json({ error: "Failed to fetch user profile" });
   }
 });
 
-export default router; 
+export default router;

@@ -14,17 +14,18 @@ const authMiddleware = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "ThisisaJWTSECRETKEY");
 
     // Verify if the token exists in sessions table
-    const sessionResult = await pool.query(
-      'SELECT * FROM sessions WHERE token = $1 AND expires_at > NOW()',
-      [token]
-    );
+    // const sessionResult = await pool.query(
+    //   'SELECT * FROM sessions WHERE token = $1 AND expires_at > NOW()',
+    //   [token]
+    // );
 
-    if (sessionResult.rows.length === 0) {
-      return res.status(401).json({ error: "Session expired or invalid." });
-    }
+    // if (sessionResult.rows.length === 0) {
+    //   return res.status(401).json({ error: "Session expired or invalid." });
+    // }
 
     // Attach the decoded user information to the request object
-    req.user = { userId: decoded.userId, role: decoded.role };
+    // , role: decoded.role
+    req.user = { userId: decoded.userId };
 
     next();
   } catch (error) {

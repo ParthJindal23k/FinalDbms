@@ -15,10 +15,20 @@ const axiosInstance = axios.create({
 // Request interceptor for adding auth token, etc.
 axiosInstance.interceptors.request.use(
   (config) => {
-    // You can add auth token here if needed
+    // Add the auth token to the header if it exists in localStorage
+    const token = localStorage.getItem('token');
+    if (token && config.headers) {
+      config.headers.Authorization = `Bearer ${token}`;
+      console.log(`Sending request to ${config.url} with auth token`);
+    } else {
+      console.log(`Sending request to ${config.url} without auth token`);
+    }
     return config;
   },
-  (error) => Promise.reject(error)
+  (error) => {
+    console.error("Request interceptor error:", error);
+    return Promise.reject(error);
+  }
 );
 
 // Response interceptor for handling errors globally
@@ -30,7 +40,9 @@ axiosInstance.interceptors.response.use(
       const { status } = error.response;
       
       if (status === 401) {
-        // Unauthorized - redirect to login
+        // Unauthorized - clear token and redirect to login
+        localStorage.removeItem('token');
+        localStorage.removeItem('userType');
         window.location.href = '/auth';
       }
       

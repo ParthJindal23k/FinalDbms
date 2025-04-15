@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { 
   Package,
@@ -26,7 +25,7 @@ interface Product {
   id: string;
   name: string;
   hsCode: string;
-  category: string;
+  category?: string;
   stock: number;
   unitCost: number;
 }
@@ -73,7 +72,6 @@ const ProductsList: React.FC<ProductsListProps> = ({
                 <TableRow>
                   <TableHead>Product Name</TableHead>
                   <TableHead>HS Code</TableHead>
-                  <TableHead>Category</TableHead>
                   <TableHead className="text-right">Stock</TableHead>
                   <TableHead className="text-right">Unit Cost</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -84,9 +82,12 @@ const ProductsList: React.FC<ProductsListProps> = ({
                   <TableRow key={product.id}>
                     <TableCell className="font-medium">{product.name}</TableCell>
                     <TableCell>{product.hsCode}</TableCell>
-                    <TableCell>{product.category}</TableCell>
                     <TableCell className="text-right">{product.stock}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(product.unitCost)}</TableCell>
+                    <TableCell className="text-right">
+                      {typeof product.unitCost === 'number' && !isNaN(product.unitCost) 
+                        ? formatCurrency(product.unitCost) 
+                        : '$0.00'}
+                    </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end space-x-2">
                         <Button

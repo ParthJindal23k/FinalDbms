@@ -1,6 +1,5 @@
-
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { 
   Menu, 
   X, 
@@ -13,6 +12,7 @@ import {
   Briefcase
 } from 'lucide-react';
 import { Button } from './ui/button';
+import { post } from '../lib/api';
 
 interface NavigationProps {
   isAuthenticated?: boolean;
@@ -21,9 +21,30 @@ interface NavigationProps {
 
 const Navigation: React.FC<NavigationProps> = ({ isAuthenticated = false, userType = null }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const navigate = useNavigate();
 
   const toggleNavbar = () => {
     setIsOpen(!isOpen);
+  };
+  
+  const handleLogout = async () => {
+    try {
+      // Call the logout API endpoint
+      await post('/auth/logout', {});
+      
+      // Clear authentication data from localStorage
+      localStorage.removeItem('token');
+      localStorage.removeItem('userType');
+      
+      // Redirect to home page
+      navigate('/');
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Fallback: Clear localStorage and redirect anyway
+      localStorage.removeItem('token');
+      localStorage.removeItem('userType');
+      navigate('/');
+    }
   };
 
   return (
@@ -57,7 +78,11 @@ const Navigation: React.FC<NavigationProps> = ({ isAuthenticated = false, userTy
                   <span>Dashboard</span>
                 </Link>
                 
-                <Button variant="ghost" className="text-gray-700 hover:text-red-600 flex items-center">
+                <Button 
+                  variant="ghost" 
+                  className="text-gray-700 hover:text-red-600 flex items-center"
+                  onClick={handleLogout}
+                >
                   <LogOut className="h-4 w-4 mr-1" />
                   <span>Logout</span>
                 </Button>
@@ -110,7 +135,10 @@ const Navigation: React.FC<NavigationProps> = ({ isAuthenticated = false, userTy
                   Dashboard
                 </Link>
                 
-                <button className="text-gray-700 hover:text-red-600 w-full text-left block px-3 py-2 rounded-md text-base font-medium">
+                <button 
+                  className="text-gray-700 hover:text-red-600 w-full text-left block px-3 py-2 rounded-md text-base font-medium"
+                  onClick={handleLogout}
+                >
                   Logout
                 </button>
               </>

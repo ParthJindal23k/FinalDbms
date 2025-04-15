@@ -18,24 +18,53 @@ import { useQuery } from '@tanstack/react-query';
 import { get } from '../lib/api';
 
 const fetchUserStats = async () => {
-  return get('/dashboard/user-stats');
+  try {
+    return await get('/dashboard/user-stats');
+  } catch (error) {
+    console.error("Error fetching user stats:", error);
+    // Return default stats if request fails
+    return {
+      totalTransactions: 0,
+      transactionValue: 0,
+      activeShipments: 0,
+      pendingCustoms: 0
+    };
+  }
 };
 
 const fetchUserShipments = async () => {
-  return get('/dashboard/user-shipments');
+  try {
+    return await get('/dashboard/user-shipments');
+  } catch (error) {
+    console.error("Error fetching shipments:", error);
+    return [];
+  }
 };
 
 const fetchUserTransactions = async () => {
-  return get('/dashboard/user-transactions');
+  try {
+    return await get('/dashboard/user-transactions');
+  } catch (error) {
+    console.error("Error fetching transactions:", error);
+    return [];
+  }
 };
 
 const fetchUserProfile = async () => {
-  return get('/user/profile');
+  try {
+    return await get('/dashboard/user-profile');
+  } catch (error) {
+    console.error("Error fetching user profile:", error);
+    return { email: "user@example.com" };
+  }
 };
 
 const UserDashboard = () => {
   const { toast } = useToast();
-  const [userName, setUserName] = useState('User');
+  const [userName, setUserName] = useState(() => {
+    // Initialize with email from localStorage if available
+    return localStorage.getItem('userEmail') || '!';
+  });
   
   // Fetch user profile
   const { data: profileData, error: profileError } = useQuery({
@@ -62,8 +91,15 @@ const UserDashboard = () => {
   });
 
   useEffect(() => {
-    if (profileData) {
-      setUserName(profileData.email.split('@')[0] || 'User');
+    // If profile data is loaded, use that email (it's the most up-to-date)
+    if (profileData && profileData.email) {
+      setUserName(profileData.email);
+    } else {
+      // Otherwise use email from localStorage as fallback
+      const storedEmail = localStorage.getItem('userEmail');
+      if (storedEmail) {
+        setUserName(storedEmail);
+      }
     }
     
     if (profileError) {
@@ -99,7 +135,7 @@ const UserDashboard = () => {
           {/* Header */}
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8">
             <div>
-              <h1 className="text-2xl font-bold mb-2">Welcome back, {userName}</h1>
+              <h1 className="text-2xl font-bold mb-2">Welcome back !</h1>
               <p className="text-gray-600">Here's what's happening with your shipments today.</p>
             </div>
             <div className="flex mt-4 md:mt-0 space-x-2">

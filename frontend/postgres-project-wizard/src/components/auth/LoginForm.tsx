@@ -38,6 +38,14 @@ const LoginForm: React.FC = () => {
       localStorage.setItem('userType', accountType);
       localStorage.setItem('token', response.token);
       
+      // Save email to localStorage with console logging
+      console.log('STORING EMAIL IN LOCALSTORAGE:', email);
+      localStorage.setItem('userEmail', email);
+      
+      // Double-check it was saved
+      const storedEmail = localStorage.getItem('userEmail');
+      console.log('VERIFICATION - EMAIL IN LOCALSTORAGE:', storedEmail);
+      
       // Navigate to the appropriate dashboard
       const userTypeRoute = accountType === 'user' ? '/user-dashboard' : '/company-dashboard';
       navigate(userTypeRoute);

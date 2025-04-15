@@ -1,4 +1,3 @@
-
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -9,8 +8,18 @@ import Auth from "./pages/Auth";
 import UserDashboard from "./pages/UserDashboard";
 import CompanyDashboard from "./pages/CompanyDashboard";
 import NotFound from "./pages/NotFound";
+import NewShipment from "./pages/NewShipment";
+import AddProduct from "./pages/AddProduct"; // ✅ Added import
 
-const queryClient = new QueryClient();
+// Configure query client with retries disabled for development
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: false, // Disable retries to prevent repeated failed API calls
+      refetchOnWindowFocus: false, // Optional: Disable refetching when window gets focus
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -23,7 +32,9 @@ const App = () => (
           <Route path="/auth" element={<Auth />} />
           <Route path="/user-dashboard" element={<UserDashboard />} />
           <Route path="/company-dashboard" element={<CompanyDashboard />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+          <Route path="/new-shipment" element={<NewShipment />} />
+          <Route path="/add-product" element={<AddProduct />} />
+
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
