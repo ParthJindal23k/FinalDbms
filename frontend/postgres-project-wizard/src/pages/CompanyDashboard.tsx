@@ -36,6 +36,7 @@ import {
 } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
 import { AddProductModal } from "./AddProduct";
+import { Label } from "../components/ui/label";
 
 interface ApiShipment {
   id?: string;
@@ -235,6 +236,16 @@ const CompanyDashboard = () => {
   // Add this state for dialog control
   const [dialogOpen, setDialogOpen] = useState(false);
 
+  // Add these new state variables for edit modal
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<any>(null);
+  const [editFormData, setEditFormData] = useState({
+    name: "",
+    stock: "",
+    hsCode: "",
+    unitCost: ""
+  });
+
   useEffect(() => {
     if (profileData) {
       // If profile data includes a name property, use it
@@ -291,7 +302,77 @@ const CompanyDashboard = () => {
   }, [shipments]);
 
   const handleEditProduct = (product: any) => {
-    console.log("Edit product:", product);
+    // Set the product to be edited and initialize form data
+    setEditingProduct(product);
+    setEditFormData({
+      name: product.name || "",
+      stock: product.stock?.toString() || "0",
+      hsCode: product.hsCode || "",
+      unitCost: product.unitCost?.toString() || "0"
+    });
+    
+    // Open the edit dialog
+    setEditDialogOpen(true);
+  };
+
+  const handleEditSubmit = async () => {
+    const token = localStorage.getItem("token");
+    if (!token || !editingProduct) {
+      toast({ 
+        title: "Error", 
+        description: "Missing authentication or product data", 
+        variant: "destructive" 
+      });
+      return;
+    }
+    
+    try {
+      const response = await fetch(`http://localhost:5001/api/products/${editingProduct.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          name: editFormData.name,
+          stock: Number(editFormData.stock),
+          hsCode: editFormData.hsCode,
+          unitCost: Number(editFormData.unitCost)
+        })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Server responded with status ${response.status}`);
+      }
+      
+      // Close the dialog
+      setEditDialogOpen(false);
+      
+      toast({ 
+        title: "Product Updated", 
+        description: `${editFormData.name} has been updated successfully.` 
+      });
+      
+      // Refresh the products list
+      queryClient.invalidateQueries({ queryKey: ["companyProducts"] });
+      
+    } catch (error: any) {
+      console.error("Error updating product:", error);
+      toast({ 
+        title: "Failed to Update Product", 
+        description: error.message || "An unknown error occurred", 
+        variant: "destructive" 
+      });
+    }
+  };
+
+  const handleEditFormChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setEditFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
   };
 
   const handleDeleteProduct = (productId: string) => {
@@ -592,6 +673,78 @@ const CompanyDashboard = () => {
       </main>
 
       <Footer />
+
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Edit Product</DialogTitle>
+            <DialogDescription>
+              Make changes to your product details here. Click save when you're done.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="name" className="text-right">
+                Name
+              </Label>
+              <Input
+                id="name"
+                name="name"
+                value={editFormData.name}
+                onChange={handleEditFormChange}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="stock" className="text-right">
+                Stock
+              </Label>
+              <Input
+                id="stock"
+                name="stock"
+                type="number"
+                value={editFormData.stock}
+                onChange={handleEditFormChange}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="hsCode" className="text-right">
+                HS Code
+              </Label>
+              <Input
+                id="hsCode"
+                name="hsCode"
+                value={editFormData.hsCode}
+                onChange={handleEditFormChange}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="unitCost" className="text-right">
+                Unit Cost
+              </Label>
+              <Input
+                id="unitCost"
+                name="unitCost"
+                type="number"
+                step="0.01"
+                value={editFormData.unitCost}
+                onChange={handleEditFormChange}
+                className="col-span-3"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-3">
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleEditSubmit}>
+              Save Changes
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
