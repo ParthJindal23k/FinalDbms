@@ -77,7 +77,6 @@ export const getShipments = async (req, res) => {
         co.name as company_name
       FROM shipments s
       LEFT JOIN products p ON s.product_id = p.id
-      LEFT JOIN customs c ON s.id = c.shipment_id
       LEFT JOIN users u ON s.user_id = u.id
       LEFT JOIN companies co ON s.company_id = co.id
     `);
@@ -102,7 +101,6 @@ export const getShipmentById = async (req, res) => {
         c.compliance_status as customs_compliance_status
       FROM shipments s
       LEFT JOIN products p ON s.product_id = p.id
-      LEFT JOIN customs c ON s.id = c.shipment_id
       WHERE s.id = $1
     `, [id]);
 
@@ -172,42 +170,6 @@ export const deleteShipment = async (req, res) => {
   } catch (error) {
     console.error("Delete Shipment Error:", error);
     res.status(400).json({ error: "Failed to delete shipment" });
-  }
-};
-
-export const createCustoms = async (req, res) => {
-  const { shipmentId, dutyPaid, tariffPercent, complianceStatus } = req.body;
-
-  if (!shipmentId || dutyPaid == null || tariffPercent == null || !complianceStatus) {
-    return res.status(400).json({ error: "Missing required customs fields" });
-  }
-
-  try {
-    // Check if shipment exists
-    const shipmentResult = await pool.query(
-      'SELECT * FROM shipments WHERE id = $1',
-      [shipmentId]
-    );
-
-    if (shipmentResult.rows.length === 0) {
-      return res.status(404).json({ error: "Shipment not found" });
-    }
-
-    // Create customs record
-    const customsResult = await pool.query(
-      `INSERT INTO customs (shipment_id, duty_paid, tariff_percent, compliance_status) 
-       VALUES ($1, $2, $3, $4) 
-       RETURNING *`,
-      [shipmentId, dutyPaid, tariffPercent, complianceStatus]
-    );
-
-    res.status(201).json(customsResult.rows[0]);
-  } catch (error) {
-    console.error("Customs Creation Error:", error);
-    res.status(400).json({
-      error: "Failed to create customs details",
-      details: error.message,
-    });
   }
 };
 

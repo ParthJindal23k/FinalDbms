@@ -60,9 +60,7 @@ const ProductsList: React.FC<ProductsListProps> = ({
             Manage your inventory and product catalog
           </CardDescription>
         </div>
-        <Button size="sm" className="bg-trade-blue hover:bg-blue-700">
-          Add Product
-        </Button>
+        
       </CardHeader>
       <CardContent>
         {products.length > 0 ? (
@@ -117,7 +115,6 @@ const ProductsList: React.FC<ProductsListProps> = ({
           <div className="flex flex-col items-center justify-center py-8">
             <Package className="h-12 w-12 text-muted-foreground mb-4" />
             <p className="text-muted-foreground mb-4">No products added yet</p>
-            <Button className="bg-trade-blue hover:bg-blue-700">Add Your First Product</Button>
           </div>
         )}
       </CardContent>

@@ -38,11 +38,7 @@ const Index = () => {
               </div>
             </div>
             <div className="hidden lg:flex justify-end">
-              <img 
-                src="/placeholder.svg" 
-                alt="Import Export Management" 
-                className="max-w-md rounded-lg shadow-lg"
-              />
+              
             </div>
           </div>
         </div>
@@ -96,16 +92,7 @@ const Index = () => {
             </div>
             
             {/* Feature 4 */}
-            <div className="trade-card p-6">
-              <div className="h-12 w-12 bg-red-100 rounded-lg flex items-center justify-center mb-4">
-                <TrendingUp className="h-6 w-6 text-red-600" />
-              </div>
-              <h3 className="text-xl font-bold mb-2">Trade Analytics</h3>
-              <p className="text-gray-600">
-                Powerful reporting tools to analyze your international trade performance,
-                costs, and opportunities.
-              </p>
-            </div>
+            
             
             {/* Feature 5 */}
             <div className="trade-card p-6">
@@ -194,7 +181,7 @@ const Index = () => {
                 </Button>
               </Link>
               <Link to="/auth">
-                <Button size="lg" variant="outline" className="border-white text-white hover:bg-white/10">
+                <Button size="lg" variant="outline" className="border-white text-black  hover:bg-white/10">
                   Sign In
                 </Button>
               </Link>

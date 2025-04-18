@@ -181,9 +181,8 @@ const RegisterForm: React.FC = () => {
                       <SelectValue placeholder="Select company type" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="importer">Importer</SelectItem>
-                      <SelectItem value="exporter">Exporter</SelectItem>
-                      <SelectItem value="both">Both</SelectItem>
+                      <SelectItem value="importer">WholeSaler</SelectItem>
+                      <SelectItem value="exporter">Retailer</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

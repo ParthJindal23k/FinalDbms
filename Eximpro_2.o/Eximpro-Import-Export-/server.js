@@ -8,7 +8,6 @@ import authRoutes from "./routes/authRoutes.js";
 import companyRoutes from "./routes/companyRoutes.js";
 import productRoutes from "./routes/productRoutes.js";
 import shipmentRoutes from "./routes/shipmentRoutes.js";
-import transactionRoutes from "./routes/transactionRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 import pool from "./config/db.js";
 
@@ -60,7 +59,6 @@ app.use("/api/auth", authRoutes);
 app.use("/api/companies", companyRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/shipments", shipmentRoutes);
-app.use("/api/transactions", transactionRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 
 // Production mode - serve static files and handle SPA routing

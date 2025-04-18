@@ -1353,10 +1353,7 @@ const CompanyDashboard = () => {
               <p className="text-gray-600">Here's what's happening with your business today.</p>
             </div>
             <div className="flex mt-4 md:mt-0 space-x-2">
-              <Button variant="outline" size="sm" className="flex items-center">
-                <Download className="mr-1 h-4 w-4" />
-                Export Data
-              </Button>
+              
               <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
                 <DialogTrigger asChild>
                   <Button 
@@ -1396,8 +1393,7 @@ const CompanyDashboard = () => {
             <TabsList className="mb-6">
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="products">Products</TabsTrigger>
-              <TabsTrigger value="transactions">Transactions</TabsTrigger>
-              <TabsTrigger value="shipments">Shipments</TabsTrigger>
+              
               <TabsTrigger value="requests">Product Requests</TabsTrigger>
             </TabsList>
             <TabsContent value="overview">

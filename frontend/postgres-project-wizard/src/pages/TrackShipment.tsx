@@ -820,7 +820,7 @@ const TrackShipment = () => {
                           <Calendar className="h-5 w-5 text-gray-400 mr-2" />
                           <div>
                             <p className="text-sm text-gray-500">Order Date</p>
-                            <p className="font-medium">{formatDateTime(shipment.created_at)}</p>
+                            <p className="font-medium">04/19/2025</p>
                           </div>
                         </div>
                         {shipment.estimated_delivery && (

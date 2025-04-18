@@ -59,29 +59,6 @@ CREATE TABLE IF NOT EXISTS shipments (
     FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS customs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    shipment_id UUID UNIQUE NOT NULL,
-    duty_paid DECIMAL(10,2) NOT NULL,
-    tariff_percent DECIMAL(5,2) NOT NULL,
-    compliance_status VARCHAR(50) NOT NULL,
-    FOREIGN KEY (shipment_id) REFERENCES shipments(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS transactions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    company_id UUID NOT NULL,
-    user_id UUID NOT NULL,
-    invoice_number VARCHAR(255) NOT NULL,
-    amount DECIMAL(10,2) NOT NULL,
-    status VARCHAR(50) NOT NULL,
-    currency VARCHAR(3) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
@@ -91,8 +68,6 @@ CREATE INDEX IF NOT EXISTS idx_products_hs_code ON products(hs_code);
 CREATE INDEX IF NOT EXISTS idx_shipments_product_id ON shipments(product_id);
 CREATE INDEX IF NOT EXISTS idx_shipments_user_id ON shipments(user_id);
 CREATE INDEX IF NOT EXISTS idx_shipments_company_id ON shipments(company_id);
-CREATE INDEX IF NOT EXISTS idx_transactions_company_id ON transactions(company_id);
-CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);
 
 -- Function to update the updated_at column
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -111,10 +86,5 @@ EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_products_updated_at
 BEFORE UPDATE ON products
-FOR EACH ROW
-EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_transactions_updated_at
-BEFORE UPDATE ON transactions
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_at_column(); 
