@@ -1,0 +1,42 @@
+/* Custom dashboard styles to make it wider */
+.trade-container {
+  max-width: 90% !important; /* Override the max-width to make it 90% of the viewport */
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Make stats cards more prominent */
+.stats-dashboard-wrapper .grid {
+  gap: 1.5rem; /* Increase the gap between cards */
+}
+
+.stats-dashboard-wrapper .bg-white {
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1); /* Stronger shadow for better depth */
+  transition: all 0.3s ease;
+}
+
+.stats-dashboard-wrapper .bg-white:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 15px rgba(0, 0, 0, 0.15);
+}
+
+/* Improve spacing */
+.trade-container.py-8 {
+  padding-top: 2.5rem;
+  padding-bottom: 2.5rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1200px) {
+  .trade-container {
+    max-width: 95% !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .trade-container {
+    max-width: 100% !important;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+} 

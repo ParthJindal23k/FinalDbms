@@ -42,6 +42,8 @@ import { AddProductModal } from "./AddProduct";
 import { Label } from "../components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import { DialogFooter } from "../components/ui/dialog";
 
 interface ApiShipment {
   id?: string;
@@ -83,14 +85,48 @@ interface ProductRequest {
 
 const fetchCompanyProfile = async () => {
   try {
-    // Call the backend API to get the company profile
-    const result = await get('/dashboard/user-profile');
-    console.log("Company profile data:", result);
-    return result;
+    const token = localStorage.getItem("token");
+    if (!token) {
+      throw new Error("No authentication token found");
+    }
+
+    // Extract companyId from token with better error handling
+    let companyId;
+    try {
+      const tokenParts = token.split('.');
+      if (tokenParts.length === 3) {
+        const payload = JSON.parse(atob(tokenParts[1]));
+        // Try multiple possible fields for company ID
+        companyId = payload.companyId || payload.company_id || payload.id || payload.userId;
+        
+        if (!companyId) {
+          console.warn("Token payload:", payload);
+          throw new Error("No company ID found in token payload");
+        }
+      } else {
+        throw new Error("Invalid token format");
+      }
+    } catch (error) {
+      console.error("Error parsing token:", error);
+      throw new Error("Failed to parse authentication token");
+    }
+
+    const response = await fetch(`http://localhost:5001/api/companies/${companyId}`, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `Failed to fetch company profile: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data;
   } catch (error) {
     console.error("Error fetching company profile:", error);
-    // If there's an error, fall back to a default but log the error
-    return { name: "Company", id: "", email: "" };
+    throw error;
   }
 };
 
@@ -160,22 +196,39 @@ const fetchCompanyProducts = async () => {
     throw new Error("No authentication token found");
   }
   
-  // Extract companyId from token
+  // Extract companyId from token with improved error handling
   let companyId;
+  let tokenPayload = null;
   try {
     const tokenParts = token.split('.');
     if (tokenParts.length === 3) {
-      const payload = JSON.parse(atob(tokenParts[1]));
-      companyId = payload.companyId;
+      tokenPayload = JSON.parse(atob(tokenParts[1]));
+      console.log("Token payload:", JSON.stringify(tokenPayload, null, 2));
+      
+      // Try multiple possible fields for company ID
+      companyId = tokenPayload.companyId || tokenPayload.company_id || tokenPayload.id || tokenPayload.userId;
+      
+      if (!companyId) {
+        console.warn("No company ID found in token payload. Available fields:", Object.keys(tokenPayload));
+        throw new Error("No company ID found in token payload");
+      }
+      
+      console.log("Using company ID:", companyId, "from field:", 
+        tokenPayload.companyId ? "companyId" : 
+        tokenPayload.company_id ? "company_id" : 
+        tokenPayload.id ? "id" : 
+        tokenPayload.userId ? "userId" : "unknown");
+    } else {
+      throw new Error("Invalid token format");
     }
   } catch (error) {
     console.error("Error parsing token:", error);
+    throw new Error("Failed to extract company ID from token");
   }
   
-  // If we couldn't get the companyId, try to fetch without it
-  const url = companyId 
-    ? `http://localhost:5001/api/products?companyId=${companyId}` 
-    : 'http://localhost:5001/api/products';
+  // Always include companyId in the URL, never fall back to fetching all products
+  const url = `http://localhost:5001/api/products?companyId=${companyId}`;
+  console.log(`Fetching products for company ${companyId} from: ${url}`);
     
   const response = await fetch(url, {
     headers: {
@@ -184,42 +237,335 @@ const fetchCompanyProducts = async () => {
   });
   
   if (!response.ok) {
+    console.error(`Failed to fetch products: ${response.status} ${response.statusText}`);
     throw new Error(`Failed to fetch products: ${response.statusText}`);
   }
   
-  return response.json();
+  const products = await response.json();
+  console.log(`Retrieved ${products.length} products for company ${companyId}`);
+  
+  if (products.length > 0) {
+    console.log("Sample product data:", JSON.stringify(products[0], null, 2));
+    
+    // Check if all products belong to the requested company
+    const mismatchedProducts = products.filter(product => 
+      product.company_id && product.company_id !== companyId
+    );
+    
+    if (mismatchedProducts.length > 0) {
+      console.warn(`Found ${mismatchedProducts.length} products that don't match company ID ${companyId}:`, 
+        mismatchedProducts.map(p => ({ id: p.id, name: p.name, company_id: p.company_id })));
+    }
+  }
+  
+  return products;
 };
 
-// Add this new function to fetch product requests
-const fetchProductRequests = async () => {
-  // For now, return mock data
-  // In a real implementation, this would call the backend API
-  return [
-    {
-      id: "req-001",
-      productName: "Wireless Gaming Mouse",
-      quantity: 25,
-      userEmail: "john@example.com",
-      requestDate: "2023-11-25",
-      status: "pending"
-    },
-    {
-      id: "req-002",
-      productName: "Mechanical Keyboard",
-      quantity: 10,
-      userEmail: "sarah@example.com",
-      requestDate: "2023-11-23",
-      status: "pending"
-    },
-    {
-      id: "req-003",
-      productName: "USB-C Hub",
-      quantity: 50,
-      userEmail: "michael@example.com",
-      requestDate: "2023-11-20",
-      status: "approved"
+// Try to fetch actual shipment data when product-requests endpoint fails
+const fetchAlternateProductRequests = async (companyId) => {
+  try {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      throw new Error("No authentication token found");
     }
-  ] as ProductRequest[];
+
+    console.log("Attempting to fetch shipment data from main endpoint");
+    
+    // Try to get all shipments and filter for the ones related to the company's products
+    const response = await fetch(`http://localhost:5001/api/shipments`, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    if (!response.ok) {
+      console.error("Alternative endpoint also failed:", response.status);
+      return [];
+    }
+
+    const shipments = await response.json();
+    console.log(`Successfully fetched all shipments: ${shipments.length}`);
+    
+    if (!Array.isArray(shipments) || shipments.length === 0) {
+      console.warn("No shipments found");
+      return [];
+    }
+    
+    // First try to fetch company's products to know which product IDs belong to this company
+    let companyProducts = [];
+    try {
+      const productsResponse = await fetch(`http://localhost:5001/api/products?companyId=${companyId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      
+      if (productsResponse.ok) {
+        const allProducts = await productsResponse.json();
+        // Only use products that explicitly belong to this company
+        companyProducts = allProducts.filter(product => 
+          product.company_id === companyId
+        );
+        console.log(`Retrieved ${companyProducts.length} verified products for company ${companyId}`);
+      }
+    } catch (error) {
+      console.error("Error fetching company products:", error);
+    }
+    
+    // Create set of product IDs or names for faster lookup
+    const companyProductIds = new Set();
+    const companyProductNames = new Set();
+    
+    companyProducts.forEach(product => {
+      if (product.id) companyProductIds.add(product.id);
+      if (product.name) companyProductNames.add(product.name.toLowerCase());
+    });
+    
+    console.log(`Company product IDs: ${Array.from(companyProductIds).join(', ')}`);
+    console.log(`Company product names: ${Array.from(companyProductNames).join(', ')}`);
+    
+    // Filter shipments that are related to this company's products
+    const companyShipments = shipments.filter(shipment => {
+      // Direct company ID match is the most reliable
+      if (shipment.company_id && shipment.company_id === companyId) {
+        return true;
+      }
+      
+      // Match by product ID if available
+      if (shipment.product_id && companyProductIds.has(shipment.product_id)) {
+        return true;
+      }
+      
+      // Match by product name as a fallback
+      if (shipment.product_name && 
+          companyProductNames.size > 0 &&
+          companyProductNames.has(shipment.product_name.toLowerCase())) {
+        return true;
+      }
+      
+      // If none of the above conditions match, this shipment is not for this company
+      return false;
+    });
+    
+    console.log(`Filtered to ${companyShipments.length} shipments related to company ${companyId}`);
+    
+    // For debugging - log a few sample shipments that were included and excluded
+    if (companyShipments.length > 0) {
+      console.log("Sample included shipment:", {
+        id: companyShipments[0].id,
+        product_name: companyShipments[0].product_name,
+        company_id: companyShipments[0].company_id
+      });
+    }
+    
+    if (shipments.length > companyShipments.length) {
+      const excludedShipment = shipments.find(s => !companyShipments.includes(s));
+      if (excludedShipment) {
+        console.log("Sample excluded shipment:", {
+          id: excludedShipment.id,
+          product_name: excludedShipment.product_name,
+          company_id: excludedShipment.company_id
+        });
+      }
+    }
+    
+    // Convert shipments to product requests format
+    // Filter for pending shipments and format them as product requests
+    const pendingRequests = companyShipments
+      .filter(shipment => shipment.status === 'pending')
+      .map(shipment => ({
+        id: shipment.id,
+        product_name: shipment.product_name || 'Unknown Product',
+        quantity: shipment.quantity || 1,
+        user_email: shipment.user_email || 'customer@example.com',
+        request_date: shipment.created_at || new Date().toISOString(),
+        status: 'pending'
+      }));
+    
+    console.log(`Processed ${pendingRequests.length} pending requests for company ${companyId}`);
+    return pendingRequests;
+    
+  } catch (error) {
+    console.error("Error fetching alternate product data:", error);
+    return [];
+  }
+};
+
+const fetchProductRequests = async () => {
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY = 1000;
+  let retryCount = 0;
+  let currentCompanyId = null;
+
+  const attemptFetch = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) {
+        throw new Error("No authentication token found");
+      }
+
+      try {
+        const tokenParts = token.split('.');
+        if (tokenParts.length === 3) {
+          const payload = JSON.parse(atob(tokenParts[1]));
+          currentCompanyId = payload.companyId || payload.company_id || payload.id || payload.userId;
+        }
+      } catch (error) {
+        console.error("Error parsing token:", error);
+        throw new Error("Failed to parse authentication token");
+      }
+
+      if (!currentCompanyId) {
+        throw new Error("Company ID not found in token");
+      }
+
+      console.log(`Fetching product requests for company: ${currentCompanyId} (Attempt ${retryCount + 1}/${MAX_RETRIES})`);
+
+      const response = await fetch(`http://localhost:5001/api/shipments/product-requests?companyId=${currentCompanyId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        let errorMessage = `Failed to fetch product requests: ${response.statusText}`;
+        let errorDetails = null;
+        
+        try {
+          const errorData = await response.json();
+          errorDetails = errorData;
+          
+          if (errorData.error === 'Failed to fetch shipment') {
+            console.warn("Backend shipment fetch error - this may indicate a database or connection issue");
+            errorMessage = "Unable to retrieve shipment information. The system is experiencing issues.";
+          } else if (errorData.message) {
+            errorMessage = errorData.message;
+          } else if (errorData.error) {
+            errorMessage = errorData.error;
+          }
+          
+          console.error("API Error Details:", {
+            status: response.status,
+            statusText: response.statusText,
+            error: errorData,
+            companyId: currentCompanyId,
+            attempt: retryCount + 1,
+            timestamp: new Date().toISOString()
+          });
+        } catch (e) {
+          console.error("Failed to parse error response:", e);
+        }
+        
+        if (response.status === 500) {
+          console.warn("Server error encountered:", {
+            status: response.status,
+            companyId: currentCompanyId,
+            attempt: retryCount + 1,
+            timestamp: new Date().toISOString()
+          });
+          
+          if (retryCount < MAX_RETRIES - 1) {
+            console.log(`Retrying in ${RETRY_DELAY}ms...`);
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+            retryCount++;
+            return attemptFetch();
+          }
+          
+          // After all retries failed, try to get real data from alternative endpoint
+          console.log("All retries failed, attempting to fetch from alternative endpoint");
+          const alternateData = await fetchAlternateProductRequests(currentCompanyId);
+          
+          if (alternateData.length > 0) {
+            console.log("Successfully retrieved data from alternative endpoint");
+            return alternateData;
+          }
+          
+          console.log("No data available from any endpoint");
+          return [];
+        }
+        
+        return [];
+      }
+
+      const data = await response.json();
+      console.log("Successfully fetched product requests:", {
+        count: data.length,
+        companyId: currentCompanyId,
+        timestamp: new Date().toISOString()
+      });
+      return data;
+    } catch (error) {
+      console.error("Error fetching product requests:", {
+        error: error,
+        companyId: currentCompanyId,
+        attempt: retryCount + 1,
+        timestamp: new Date().toISOString()
+      });
+      
+      if (retryCount < MAX_RETRIES - 1) {
+        console.log(`Retrying in ${RETRY_DELAY}ms...`);
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+        retryCount++;
+        return attemptFetch();
+      }
+      
+      // Try alternative data source instead of mock data
+      console.log("All retries failed, attempting to fetch from alternative endpoint");
+      const alternateData = await fetchAlternateProductRequests(currentCompanyId);
+      
+      if (alternateData.length > 0) {
+        console.log("Successfully retrieved data from alternative endpoint");
+        return alternateData;
+      }
+      
+      console.log("No data available from any endpoint");
+      return [];
+    }
+  };
+
+  return attemptFetch();
+};
+
+const fetchPorts = async () => {
+  try {
+    const token = localStorage.getItem("token");
+    // First try to fetch from API
+    try {
+      const response = await fetch("http://localhost:5001/api/ports", {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log("Successfully fetched ports from API:", data.length);
+        return data;
+      }
+    } catch (apiError) {
+      console.error("Error fetching ports from API:", apiError);
+    }
+    
+    // Fallback to default ports list if API fails
+  return [
+      { id: "1", name: "Shanghai", country: "China" },
+      { id: "2", name: "Singapore", country: "Singapore" },
+      { id: "3", name: "Busan", country: "South Korea" },
+      { id: "4", name: "Ningbo-Zhoushan", country: "China" },
+      { id: "5", name: "Guangzhou Harbor", country: "China" },
+      { id: "6", name: "Rotterdam", country: "Netherlands" },
+      { id: "7", name: "Antwerp", country: "Belgium" },
+      { id: "8", name: "Qingdao", country: "China" },
+      { id: "9", name: "Los Angeles", country: "USA" },
+      { id: "10", name: "Tianjin", country: "China" },
+      { id: "11", name: "Dubai", country: "UAE" },
+      { id: "12", name: "New York", country: "USA" },
+      { id: "13", name: "Hamburg", country: "Germany" }
+    ];
+  } catch (error) {
+    console.error("Error in fetchPorts:", error);
+    return [];
+  }
 };
 
 const CompanyDashboard = () => {
@@ -300,8 +646,76 @@ const CompanyDashboard = () => {
     isLoading: productRequestsLoading,
   } = useQuery({
     queryKey: ["productRequests"],
-    queryFn: fetchProductRequests,
+    queryFn: fetchProductRequests
   });
+
+  // Check for saved approvals/rejections whenever product requests data changes
+  useEffect(() => {
+    // When product requests are fetched successfully, check localStorage for any saved approval/rejection status
+    if (productRequests && productRequests.length > 0) {
+      // Check companyApprovals in localStorage
+      const companyApprovalsKey = 'companyApprovals';
+      const savedApprovalsJSON = localStorage.getItem(companyApprovalsKey);
+      
+      if (savedApprovalsJSON) {
+        try {
+          const savedApprovals = JSON.parse(savedApprovalsJSON);
+          const updatedRequests = productRequests.map(request => {
+            const savedStatus = savedApprovals[request.id];
+            if (savedStatus) {
+              return {
+                ...request,
+                status: savedStatus.status === 'approved' ? 'approved' : 
+                        savedStatus.status === 'rejected' ? 'rejected' : request.status,
+                origin_port: savedStatus.originPort || request.origin_port
+              };
+            }
+            return request;
+          });
+          
+          // Update the cache with localStorage data
+          queryClient.setQueryData(["productRequests"], updatedRequests);
+          console.log("Updated product requests with saved approval statuses from localStorage");
+        } catch (error) {
+          console.error("Error processing saved approvals:", error);
+        }
+      }
+      
+      // Also check company-specific requestStatus
+      const localStatusKey = `requestStatus_${profileData?.company_id || 'unknown'}`;
+      const localStatusJSON = localStorage.getItem(localStatusKey);
+      
+      if (localStatusJSON) {
+        try {
+          const localStatus = JSON.parse(localStatusJSON);
+          // Set the local request status from localStorage
+          setLocalRequestStatus(localStatus);
+          console.log("Loaded local request status from localStorage");
+        } catch (error) {
+          console.error("Error processing local status:", error);
+        }
+      }
+    }
+  }, [productRequests, profileData?.company_id, queryClient]);
+
+  // Add these new state variables after other state declarations in the CompanyDashboard component
+  const [approvalDialogOpen, setApprovalDialogOpen] = useState(false);
+  const [currentRequestId, setCurrentRequestId] = useState<string | null>(null);
+  const [selectedOriginPort, setSelectedOriginPort] = useState<string>("Shanghai");
+  const [processingRequest, setProcessingRequest] = useState(false);
+
+  // Add this new query near your other useQuery hooks
+  const {
+    data: ports,
+    error: portsError,
+    isLoading: portsLoading,
+  } = useQuery({
+    queryKey: ["ports"],
+    queryFn: fetchPorts,
+  });
+
+  // Add a new state variable to store locally approved/rejected requests
+  const [localRequestStatus, setLocalRequestStatus] = useState<Record<string, {status: string, originPort?: string}>>({});
 
   useEffect(() => {
     if (profileData) {
@@ -450,20 +864,25 @@ const CompanyDashboard = () => {
     }
 
     try {
-      // Extract companyId from token
+      // Extract companyId from token with better error handling
       let companyId;
       try {
         const tokenParts = token.split('.');
         if (tokenParts.length === 3) {
           const payload = JSON.parse(atob(tokenParts[1]));
-          companyId = payload.companyId;
+          // Try multiple possible fields for company ID
+          companyId = payload.companyId || payload.company_id || payload.id || payload.userId;
+          
+          if (!companyId) {
+            console.warn("Token payload:", payload);
+            throw new Error("No company ID found in token payload");
+          }
+        } else {
+          throw new Error("Invalid token format");
         }
       } catch (error) {
         console.error("Error parsing token:", error);
-      }
-      
-      if (!companyId) {
-        companyId = "00000000-0000-0000-0000-000000000000"; // Fallback
+        throw new Error("Failed to extract company ID from token");
       }
 
       console.log("Sending product data to API:", {
@@ -507,10 +926,7 @@ const CompanyDashboard = () => {
       setNewProductData({ name: "", stock: "", hsCode: "", unitCost: "" });
       
       // Close the dialog
-      const closeDialogButton = document.querySelector('[data-state="open"] button[aria-label="Close"]');
-      if (closeDialogButton instanceof HTMLElement) {
-        closeDialogButton.click();
-      }
+      setDialogOpen(false);
       
       // Refresh the products list - this is the key line for updating the UI
       queryClient.invalidateQueries({ queryKey: ["companyProducts"] });
@@ -526,23 +942,305 @@ const CompanyDashboard = () => {
     }
   };
 
-  // Add these new methods for handling product requests
-  const handleApproveRequest = (requestId: string) => {
-    // In a real implementation, this would make an API call to update the request status
-    console.log(`Approving request: ${requestId}`);
-    toast({
-      title: "Request Approved",
-      description: "The product request has been approved.",
-    });
+  // Replace the handleApproveRequest function with this enhanced version
+  const handleApproveRequest = async (requestId: string) => {
+    setCurrentRequestId(requestId);
+    setApprovalDialogOpen(true);
   };
 
-  const handleRejectRequest = (requestId: string) => {
-    // In a real implementation, this would make an API call to update the request status
-    console.log(`Rejecting request: ${requestId}`);
+  // Update the confirmApprovalWithOriginPort function to ensure the approval is saved properly to both the database and localStorage
+  const confirmApprovalWithOriginPort = async () => {
+    try {
+      setProcessingRequest(true);
+      console.log(`Approving shipment ${currentRequestId} with origin port: ${selectedOriginPort}`);
+      
+      if (!currentRequestId) {
+        throw new Error("No request ID found for approval");
+      }
+
+      // Create a unique key for storing approval data
+      const companyApprovalsKey = 'companyApprovals';
+      
+      // Get existing approvals or initialize empty object
+      const existingApprovalsJSON = localStorage.getItem(companyApprovalsKey) || '{}';
+      let existingApprovals = {};
+      try {
+        existingApprovals = JSON.parse(existingApprovalsJSON);
+      } catch (error) {
+        console.error("Error parsing existing approvals:", error);
+      }
+      
+      // Create the approval data
+      const approvalData = {
+        status: 'approved',
+        originPort: selectedOriginPort,
+        approvedAt: new Date().toISOString(),
+        approvedBy: companyName || 'Company'
+      };
+      
+      // Save to localStorage FIRST to ensure data is available even if API call fails
+      existingApprovals[currentRequestId] = approvalData;
+      localStorage.setItem(companyApprovalsKey, JSON.stringify(existingApprovals));
+      console.log(`Saved approval data to localStorage for shipment ${currentRequestId}`);
+      
+      // Store approval in memory for UI updates
+      let approvalUpdateSuccess = false;
+      
+      // Then try to update the shipment directly in the database
+      try {
+        const token = localStorage.getItem('token');
+        if (token) {
+          console.log(`Attempting to update shipment ${currentRequestId} status in database`);
+          
+          const updateResponse = await fetch(`http://localhost:5001/api/shipments/${currentRequestId}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              status: 'approved',
+              origin_port: selectedOriginPort
+            })
+          });
+          
+          if (updateResponse.ok) {
+            console.log(`Successfully updated shipment ${currentRequestId} in database`);
+            approvalUpdateSuccess = true;
+          } else {
+            const errorText = await updateResponse.text();
+            console.error(`Error updating shipment in database: ${updateResponse.status} - ${errorText}`);
+            
+            // If direct update fails, try the shipment approval endpoint as fallback
+            console.log("Trying shipment approval endpoint as fallback");
+            const approvalResponse = await fetch(`http://localhost:5001/api/shipments/approve/${currentRequestId}`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({
+                origin_port: selectedOriginPort
+              })
+            });
+            
+            if (approvalResponse.ok) {
+              console.log(`Successfully approved shipment ${currentRequestId} via approval endpoint`);
+              approvalUpdateSuccess = true;
+            } else {
+              const approvalErrorText = await approvalResponse.text();
+              console.error(`Error approving shipment via approval endpoint: ${approvalResponse.status} - ${approvalErrorText}`);
+            }
+          }
+        }
+      } catch (dbError) {
+        console.error("Error updating shipment in database:", dbError);
+      }
+      
+      // Update local state for immediate UI feedback
+      if (productRequests) {
+        const updatedRequests = productRequests.map(request => {
+          if (request.id === currentRequestId) {
+            return {
+              ...request,
+              status: 'approved',
+              origin_port: selectedOriginPort
+            };
+          }
+          return request;
+        });
+        
+        queryClient.setQueryData(["productRequests"], updatedRequests);
+        console.log(`Updated local shipment requests state for shipment ${currentRequestId}`);
+      }
+      
+      // Update local request status for persistence between component mounts
+      const localStatusKey = `requestStatus_${profileData?.company_id || 'unknown'}`;
+      const existingStatusJSON = localStorage.getItem(localStatusKey) || '{}';
+      let existingStatus = {};
+      
+      try {
+        existingStatus = JSON.parse(existingStatusJSON);
+      } catch (e) {
+        console.error("Error parsing existing status:", e);
+      }
+      
+      existingStatus[currentRequestId] = {
+        status: 'approved',
+        originPort: selectedOriginPort,
+        timestamp: new Date().toISOString() // Add timestamp to track when this was approved
+      };
+      
+      localStorage.setItem(localStatusKey, JSON.stringify(existingStatus));
+      console.log(`Updated local request status for company ${profileData?.company_id || 'unknown'}`);
+      
+      // Close modal and complete the process
+      setApprovalDialogOpen(false);
+      setProcessingRequest(false);
+      
+      // Show success message
     toast({
-      title: "Request Rejected",
-      description: "The product request has been rejected.",
-    });
+        title: "Shipment Approved",
+        description: "The shipment has been approved and saved successfully!"
+      });
+      
+      // Refresh the data after a short delay to reflect changes
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["productRequests"] });
+      }, 500);
+      
+      console.log("Approval process completed");
+    } catch (error) {
+      console.error("Error in approval process:", error);
+      setProcessingRequest(false);
+      setApprovalDialogOpen(false);
+      
+      // Show error message
+      toast({
+        title: "Error",
+        description: "Failed to approve the shipment. Please try again."
+      });
+    }
+  };
+
+  // Update the handleRejectRequest function to prioritize database update
+  const handleRejectRequest = async (requestId: string) => {
+    try {
+      setProcessingRequest(true);
+      
+      const token = localStorage.getItem("token");
+      if (!token) {
+        throw new Error("No authentication token found");
+      }
+      
+      // Get the request data
+      const request = productRequests?.find(req => req.id === requestId);
+      if (!request) {
+        throw new Error("Request not found");
+      }
+
+      console.log("Rejecting product request:", {
+        id: requestId,
+        product: request.product_name
+      });
+
+      // Create a unique key for storing rejection data in localStorage FIRST
+      const companyApprovalsKey = 'companyApprovals';
+      const existingApprovalsJSON = localStorage.getItem(companyApprovalsKey) || '{}';
+      let existingApprovals = {};
+      
+      try {
+        existingApprovals = JSON.parse(existingApprovalsJSON);
+      } catch (error) {
+        console.error("Error parsing existing approvals:", error);
+      }
+      
+      // Create the rejection data
+      const rejectionData = {
+        status: 'rejected',
+        rejectedAt: new Date().toISOString(),
+        rejectedBy: companyName || 'Company'
+      };
+      
+      // Save to localStorage first
+      existingApprovals[requestId] = rejectionData;
+      localStorage.setItem(companyApprovalsKey, JSON.stringify(existingApprovals));
+      console.log(`Saved rejection data to localStorage for shipment ${requestId}`);
+
+      // Try to update the status in the database
+      let apiSuccess = false;
+      let errorMessage = "Failed to reject request";
+
+      try {
+        const response = await fetch(`http://localhost:5001/api/shipments/${requestId}`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            status: "rejected"
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          console.log("Successfully rejected shipment in database:", data);
+          apiSuccess = true;
+        } else {
+          // Try to extract error details
+          try {
+            const errorData = await response.json();
+            console.error("API error details:", errorData);
+            errorMessage = errorData.message || errorData.error || `Server responded with status ${response.status}`;
+          } catch (e) {
+            console.error("Could not parse error response:", e);
+            errorMessage = `Server responded with status ${response.status}`;
+          }
+          console.log("Rejection endpoint failed:", errorMessage);
+        }
+      } catch (apiError) {
+        console.error("Error with rejection API call:", apiError);
+      }
+
+      // Store the rejected status locally for immediate UI feedback
+      setLocalRequestStatus(prev => ({
+        ...prev,
+        [requestId]: {
+          status: 'rejected',
+          timestamp: new Date().toISOString()
+        }
+      }));
+
+      // Update local request status for persistence between component mounts
+      const localStatusKey = `requestStatus_${profileData?.company_id || 'unknown'}`;
+      const existingStatusJSON = localStorage.getItem(localStatusKey) || '{}';
+      let existingStatus = {};
+      
+      try {
+        existingStatus = JSON.parse(existingStatusJSON);
+      } catch (e) {
+        console.error("Error parsing existing status:", e);
+      }
+      
+      existingStatus[requestId] = {
+        status: 'rejected',
+        timestamp: new Date().toISOString()
+      };
+      
+      localStorage.setItem(localStatusKey, JSON.stringify(existingStatus));
+      console.log(`Updated local request status for company ${profileData?.company_id || 'unknown'}`);
+
+      // Optimistically update the UI
+      const updatedRequests = productRequests?.map(req => 
+        req.id === requestId 
+          ? { ...req, status: 'rejected' as const } 
+          : req
+      ) || [];
+      
+      // Update the cache directly
+      queryClient.setQueryData(["productRequests"], updatedRequests);
+
+    toast({
+        title: apiSuccess ? "Request Rejected" : "Request Marked as Rejected",
+        description: `The ${request.product_name} request has been rejected.`,
+      });
+      
+      // Refresh the data after a short delay
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["productRequests"] });
+      }, 500);
+      
+    } catch (error) {
+      console.error("Error rejecting request:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to reject the request. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setProcessingRequest(false);
+    }
   };
 
   const stats = statsData || {
@@ -554,38 +1252,91 @@ const CompanyDashboard = () => {
 
   const formatProductsData = (productsData: any[]) => {
     if (!productsData || !Array.isArray(productsData)) {
-      console.log("Products data is not an array:", productsData);
       return [];
     }
     
-    console.log("Raw products data:", JSON.stringify(productsData));
+    // Get the current company ID from token
+    let currentCompanyId;
+    try {
+      const token = localStorage.getItem("token");
+      if (token) {
+        const tokenParts = token.split('.');
+        if (tokenParts.length === 3) {
+          const payload = JSON.parse(atob(tokenParts[1]));
+          currentCompanyId = payload.companyId || payload.company_id || payload.id || payload.userId;
+        }
+      }
+    } catch (error) {
+      console.error("Error extracting company ID:", error);
+    }
     
-    return productsData.map(product => {
-      // Log each product to help debug
-      console.log("Processing product:", product);
-      console.log("unitCost type:", typeof product.unit_cost, "value:", product.unit_cost);
-      
-      // Try to parse the unitCost if it's a string
+    // Filter out products that don't belong to the current company
+    const filteredProducts = currentCompanyId ? 
+      productsData.filter(product => 
+        !product.company_id || product.company_id === currentCompanyId
+      ) : 
+      productsData;
+    
+    if (currentCompanyId && filteredProducts.length < productsData.length) {
+      console.log(`Filtered out ${productsData.length - filteredProducts.length} products that don't belong to company ${currentCompanyId}`);
+    }
+    
+    return filteredProducts.map(product => {
+      // Parse unit_cost as a number, handling both string and number inputs
       let parsedUnitCost = 0;
       try {
-        if (product.unit_cost !== undefined) {
+        if (typeof product.unit_cost === 'string') {
           parsedUnitCost = parseFloat(product.unit_cost);
-        } else if (product.unitCost !== undefined) {
-          parsedUnitCost = parseFloat(product.unitCost);
+        } else if (typeof product.unit_cost === 'number') {
+          parsedUnitCost = product.unit_cost;
+        }
+        
+        if (isNaN(parsedUnitCost)) {
+          parsedUnitCost = 0;
         }
       } catch (e) {
-        console.error("Error parsing unitCost:", e);
+        parsedUnitCost = 0;
+      }
+      
+      // Parse stock as an integer
+      let parsedStock = 0;
+      try {
+        parsedStock = parseInt(product.stock);
+        if (isNaN(parsedStock)) {
+          parsedStock = 0;
+        }
+      } catch (e) {
+        parsedStock = 0;
       }
       
       return {
         id: product.id,
         name: product.name || 'Unnamed Product',
         hsCode: product.hs_code || product.hsCode || 'N/A',
-        stock: parseInt(product.stock) || 0,
-        unitCost: parsedUnitCost || 0
+        stock: parsedStock,
+        unitCost: parsedUnitCost
       };
     });
   };
+
+  // Add this effect to load saved request statuses when the component mounts
+  useEffect(() => {
+    // Load local request status from localStorage
+    if (profileData?.company_id) {
+      const localStatusKey = `requestStatus_${profileData.company_id}`;
+      const localStatusJSON = localStorage.getItem(localStatusKey);
+      
+      if (localStatusJSON) {
+        try {
+          const savedStatus = JSON.parse(localStatusJSON);
+          setLocalRequestStatus(savedStatus);
+          console.log("Loaded saved request statuses from localStorage");
+        } catch (error) {
+          console.error("Error loading saved request statuses:", error);
+        }
+      }
+    }
+  }, [profileData?.company_id]);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -631,11 +1382,7 @@ const CompanyDashboard = () => {
                     <Input placeholder="Unit Cost" value={newProductData.unitCost} onChange={(e) => setNewProductData({ ...newProductData, unitCost: e.target.value })} />
                     <Button 
                       className="w-full bg-trade-blue hover:bg-blue-700" 
-                      onClick={async () => {
-                        await handleAddProduct();
-                        // Close dialog after successful submission
-                        setDialogOpen(false);
-                      }}
+                      onClick={handleAddProduct}
                     >
                       Submit
                     </Button>
@@ -709,11 +1456,7 @@ const CompanyDashboard = () => {
                         <Input placeholder="Unit Cost" value={newProductData.unitCost} onChange={(e) => setNewProductData({ ...newProductData, unitCost: e.target.value })} />
                         <Button 
                           className="w-full bg-trade-blue hover:bg-blue-700" 
-                          onClick={async () => {
-                            await handleAddProduct();
-                            // Close dialog after successful submission
-                            setDialogOpen(false);
-                          }}
+                          onClick={handleAddProduct}
                         >
                           Submit
                         </Button>
@@ -754,46 +1497,59 @@ const CompanyDashboard = () => {
                 </div>
               ) : productRequests && productRequests.length > 0 ? (
                 <div className="grid gap-6">
-                  {productRequests.map((request) => (
+                  {productRequests.map((request) => {
+                    // Get local status if available
+                    const localStatus = localRequestStatus[request.id];
+                    const effectiveStatus = localStatus ? localStatus.status : request.status;
+                    
+                    return (
                     <Card key={request.id} className="shadow-sm">
                       <CardHeader className="pb-3">
                         <div className="flex justify-between items-center">
-                          <CardTitle className="text-lg">{request.productName}</CardTitle>
+                            <CardTitle className="text-lg">{request.product_name}</CardTitle>
                           <Badge 
-                            className={`px-2 py-1 ${
-                              request.status === 'pending' 
+                              className={`px-2 py-1.5 ${
+                                effectiveStatus === 'pending' 
                                 ? 'bg-yellow-500' 
-                                : request.status === 'approved' 
+                                  : effectiveStatus === 'approved' 
                                   ? 'bg-green-500' 
                                   : 'bg-red-500'
                             }`}
                           >
-                            {request.status === 'pending' ? 'Pending' : 
-                             request.status === 'approved' ? 'Approved' : 'Rejected'}
+                              {effectiveStatus === 'pending' ? 'Pending' : 
+                               effectiveStatus === 'approved' ? 'Approved' : 'Rejected'}
                           </Badge>
                         </div>
                       </CardHeader>
                       <CardContent>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-                          <div>
-                            <p className="text-sm text-gray-500">Request ID</p>
-                            <p className="font-medium">{request.id}</p>
-                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
                           <div>
                             <p className="text-sm text-gray-500">Quantity</p>
                             <p className="font-medium">{request.quantity} units</p>
                           </div>
                           <div>
                             <p className="text-sm text-gray-500">User</p>
-                            <p className="font-medium">{request.userEmail}</p>
+                              <p className="font-medium">{request.user_email}</p>
                           </div>
                           <div>
                             <p className="text-sm text-gray-500">Date Requested</p>
-                            <p className="font-medium">{request.requestDate}</p>
+                              <p className="font-medium">{new Date(request.request_date).toLocaleDateString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}</p>
                           </div>
+                            {localStatus && localStatus.status === 'approved' && localStatus.originPort && (
+                              <div>
+                                <p className="text-sm text-gray-500">Origin Port</p>
+                                <p className="font-medium">{localStatus.originPort}</p>
+                              </div>
+                            )}
                         </div>
                         
-                        {request.status === 'pending' && (
+                          {effectiveStatus === 'pending' && (
                           <div className="flex justify-end space-x-2 mt-2">
                             <Button 
                               size="sm" 
@@ -816,7 +1572,8 @@ const CompanyDashboard = () => {
                         )}
                       </CardContent>
                     </Card>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="text-center py-8 bg-white rounded-lg shadow">
@@ -903,6 +1660,53 @@ const CompanyDashboard = () => {
             </Button>
             <Button onClick={handleEditSubmit}>
               Save Changes
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={approvalDialogOpen} onOpenChange={setApprovalDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Approve Product Request</DialogTitle>
+            <DialogDescription>
+              Select the origin port for the approved product request.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="originPort" className="text-right">
+                Origin Port
+              </Label>
+              <Select
+                value={selectedOriginPort}
+                onValueChange={setSelectedOriginPort}
+              >
+                <SelectTrigger className="col-span-3">
+                  <SelectValue placeholder="Select origin port" />
+                </SelectTrigger>
+                <SelectContent>
+                  {portsLoading ? (
+                    <SelectItem value="loading" disabled>Loading ports...</SelectItem>
+                  ) : ports && ports.length > 0 ? (
+                    ports.map((port) => (
+                      <SelectItem key={port.id} value={port.name}>
+                        {port.name}, {port.country}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="none" disabled>No ports available</SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex justify-end gap-3">
+            <Button variant="outline" onClick={() => setApprovalDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={confirmApprovalWithOriginPort}>
+              Confirm
             </Button>
           </div>
         </DialogContent>

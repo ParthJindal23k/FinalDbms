@@ -105,24 +105,92 @@ const TrackShipment = () => {
       // Create a unique key for this user's shipments
       const userShipmentsKey = `userShipments_${userEmail}`;
       
-      // Try to get real data first
+      // Try to get real data from multiple sources with better error handling
       let apiSuccess = false;
-      try {
-        if (token) {
-          const response = await fetch("http://localhost:5001/api/shipments/user", {
-            headers: {
-              Authorization: `Bearer ${token}`
-            }
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
-            console.log("Successfully fetched real shipment data:", data);
+      let apiData = [];
+      let apiErrors = [];
+      
+      // First try the dedicated user shipments endpoint (trying multiple times)
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          if (token) {
+            console.log(`Attempting to fetch shipments from primary endpoint (attempt ${attempt + 1})`);
+            const response = await fetch("http://localhost:5001/api/shipments/user", {
+              headers: {
+                Authorization: `Bearer ${token}`
+              }
+            });
             
-            // Get company details for each shipment
-            const enhancedShipments = await Promise.all(data.map(async (shipment) => {
-              try {
-                // Try to get the registered company name from the API
+            if (response.ok) {
+              apiData = await response.json();
+              console.log("Successfully fetched user shipment data:", apiData);
+              apiSuccess = true;
+              break; // Exit the retry loop on success
+            } else {
+              const errorText = await response.text();
+              apiErrors.push(`Primary endpoint failed (attempt ${attempt + 1}): ${response.status} - ${errorText}`);
+              console.log(`Primary endpoint failed (attempt ${attempt + 1}) with status:`, response.status, errorText);
+              // Wait 1 second before retrying
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+          }
+        } catch (apiError) {
+          apiErrors.push(`Error with primary API endpoint (attempt ${attempt + 1}): ${apiError.message}`);
+          console.error(`Error with primary API endpoint (attempt ${attempt + 1}):`, apiError);
+          // Wait 1 second before retrying
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+      
+      // If first endpoint failed after all retries, try the second endpoint
+      if (!apiSuccess && token) {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            console.log(`Attempting to fetch from secondary endpoint (attempt ${attempt + 1})`);
+            const response = await fetch("http://localhost:5001/api/shipments", {
+              headers: {
+                Authorization: `Bearer ${token}`
+              }
+            });
+            
+            if (response.ok) {
+              const allShipments = await response.json();
+              // Filter by user email
+              apiData = allShipments.filter(shipment => 
+                shipment.user_email === userEmail || 
+                shipment.userEmail === userEmail
+              );
+              
+              if (apiData.length > 0) {
+                console.log(`Successfully filtered ${apiData.length} shipments from secondary endpoint`);
+                apiSuccess = true;
+                break; // Exit the retry loop on success
+              } else {
+                apiErrors.push(`Secondary endpoint returned no shipments for user ${userEmail}`);
+                console.log("Secondary endpoint returned no shipments for this user");
+              }
+            } else {
+              const errorText = await response.text();
+              apiErrors.push(`Secondary endpoint failed (attempt ${attempt + 1}): ${response.status} - ${errorText}`);
+              console.log(`Secondary endpoint failed (attempt ${attempt + 1}) with status:`, response.status, errorText);
+            }
+          } catch (secondaryError) {
+            apiErrors.push(`Error with secondary API endpoint (attempt ${attempt + 1}): ${secondaryError.message}`);
+            console.error(`Error with secondary API endpoint (attempt ${attempt + 1}):`, secondaryError);
+          }
+          // Wait 1 second before retrying
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+      
+      // If we have API data, enhance it with company information
+      if (apiSuccess && apiData.length > 0) {
+        try {
+          console.log("Found API data, enhancing with company information");
+          const enhancedShipments = await Promise.all(apiData.map(async (shipment) => {
+            try {
+              // Try to get the company information if we have a company ID
+              if (shipment.company_id && token) {
                 const companyResponse = await fetch(`http://localhost:5001/api/companies/${shipment.company_id}`, {
                   headers: {
                     Authorization: `Bearer ${token}`
@@ -131,29 +199,71 @@ const TrackShipment = () => {
                 
                 if (companyResponse.ok) {
                   const companyData = await companyResponse.json();
-                  // Update the company name with the registered name from database
                   return {
                     ...shipment,
-                    company_name: companyData.name // Use specifically the 'name' field as shown in the database
+                    company_name: companyData.name || 'Unknown Company'
                   };
                 }
-              } catch (error) {
-                console.error("Error fetching company details:", error);
               }
-              return shipment;
-            }));
-            
-            setShipments(enhancedShipments || data || []);
-            setLoading(false);
-            apiSuccess = true;
-            return;
+            } catch (error) {
+              console.error("Error fetching company details:", error);
+            }
+            return shipment;
+          }));
+          
+          console.log("Enhanced shipments with company data:", enhancedShipments);
+          
+          // Check if any shipments have approval data in localStorage
+          const companyApprovalsKey = 'companyApprovals';
+          const companyApprovals = localStorage.getItem(companyApprovalsKey);
+          
+          if (companyApprovals) {
+            try {
+              const approvals = JSON.parse(companyApprovals);
+              // Update any shipments that might have more recent approval/rejection data in localStorage
+              const finalShipments = enhancedShipments.map(shipment => {
+                const approvalData = approvals[shipment.id];
+                
+                // Check both pending and other states - approval data in localStorage should override API data
+                if (approvalData) {
+                  if (approvalData.status === 'approved') {
+                    console.log(`Found approval data for shipment ${shipment.id} from localStorage - updating status`);
+                    return {
+                      ...shipment,
+                      status: 'approved',
+                      origin_port: approvalData.originPort || shipment.origin_port,
+                      approved_at: approvalData.approvedAt || new Date().toISOString()
+                    };
+                  } else if (approvalData.status === 'rejected') {
+                    console.log(`Found rejection data for shipment ${shipment.id} from localStorage - updating status`);
+                    return {
+                      ...shipment,
+                      status: 'declined',
+                      rejected_at: approvalData.rejectedAt || new Date().toISOString()
+                    };
+                  }
+                }
+                return shipment;
+              });
+              
+              setShipments(finalShipments);
+            } catch (approvalErr) {
+              console.error("Error processing approval data:", approvalErr);
+              setShipments(enhancedShipments);
+            }
+          } else {
+            setShipments(enhancedShipments);
           }
+          
+          setLoading(false);
+          return;
+        } catch (enhanceError) {
+          console.error("Error enhancing shipments with company data:", enhanceError);
         }
-      } catch (apiError) {
-        console.error("API Error:", apiError);
       }
       
-      // If API failed, fallback to local storage and new shipments
+      // If API failed or returned no data with detailed logging
+      console.log("API requests failed after all attempts, see errors:", apiErrors);
       console.log("Falling back to stored shipment data for user:", userEmail);
       
       // Get the tax rate
@@ -179,6 +289,54 @@ const TrackShipment = () => {
         if (shipmentData) {
           storedShipments = JSON.parse(shipmentData);
           console.log(`Retrieved ${storedShipments.length} stored shipments for user ${userEmail}`);
+          
+          // Check if we need to update any shipments with company approval information
+          const companyApprovalsKey = 'companyApprovals';
+          const companyApprovals = localStorage.getItem(companyApprovalsKey);
+          
+          if (companyApprovals) {
+            try {
+              const approvals = JSON.parse(companyApprovals);
+              
+              // Update shipments with approval data - be more verbose about this
+              let approvalUpdatesCount = 0;
+              storedShipments = storedShipments.map(shipment => {
+                const approvalData = approvals[shipment.id];
+                if (approvalData) {
+                  approvalUpdatesCount++;
+                  
+                  if (approvalData.status === 'approved') {
+                    console.log(`Found approval data for shipment ${shipment.id} - setting status to approved with origin port ${approvalData.originPort}`);
+                    return {
+                      ...shipment,
+                      status: 'approved',
+                      origin_port: approvalData.originPort || shipment.origin_port,
+                      approved_at: approvalData.approvedAt || new Date().toISOString()
+                    };
+                  } else if (approvalData.status === 'rejected') {
+                    console.log(`Found rejection data for shipment ${shipment.id} - setting status to declined`);
+                    return {
+                      ...shipment,
+                      status: 'declined',
+                      rejected_at: approvalData.rejectedAt || new Date().toISOString()
+                    };
+                  }
+                }
+                return shipment;
+              });
+              
+              if (approvalUpdatesCount > 0) {
+                console.log(`Applied ${approvalUpdatesCount} approval/rejection updates from localStorage`);
+                
+                // Save the updated shipments back to localStorage
+                localStorage.setItem(userShipmentsKey, JSON.stringify(storedShipments));
+              } else {
+                console.log("No approval updates found in localStorage");
+              }
+            } catch (err) {
+              console.error("Error updating shipments with approval data:", err);
+            }
+          }
         }
       } catch (err) {
         console.error("Error retrieving stored shipments:", err);
@@ -296,11 +454,12 @@ const TrackShipment = () => {
   // Calculate progress based on status
   const calculateProgress = (status) => {
     switch(status) {
-      case 'pending': return 10;
-      case 'approved': return 30;
-      case 'in transit': return 60;
+      case 'pending': return 20;
+      case 'approved': return 60;
+      case 'in transit': return 80;
       case 'delivered': return 100;
-      case 'declined': return 0;
+      case 'declined': 
+      case 'rejected': return 0;
       default: return 0;
     }
   };
@@ -311,13 +470,15 @@ const TrackShipment = () => {
       case 'pending': 
         return "Awaiting approval from supplier";
       case 'approved': 
-        return `Ready for dispatch at ${shipment.origin_port || 'origin'}`;
+        return `Ready for dispatch at ${shipment.origin_port || 'origin'} (approved by supplier)`;
       case 'in transit': 
         return `In transit from ${shipment.origin_port || 'origin'} to ${shipment.destination_port || 'destination'}`;
       case 'delivered': 
         return `Delivered to ${shipment.destination_port || 'destination'}`;
       case 'declined': 
         return "Shipment declined by supplier";
+      case 'rejected': 
+        return "Shipment rejected by supplier";
       default: 
         return "Status unknown";
     }
@@ -341,18 +502,25 @@ const TrackShipment = () => {
       }))
     );
     
-    if (activeTab === "all") return shipments;
-    if (activeTab === "current") {
+    if (activeTab === "all") {
+      // Only show pending shipments in "All" tab, exclude approved/completed/cancelled
       return shipments.filter(shipment => 
-        ['pending', 'approved', 'in transit'].includes(shipment.status)
+        shipment.status === 'pending'
       );
     }
+    
     if (activeTab === "completed") {
-      return shipments.filter(shipment => shipment.status === 'delivered');
+      return shipments.filter(shipment => 
+        ['approved', 'delivered', 'in transit'].includes(shipment.status)
+      );
     }
+    
     if (activeTab === "cancelled") {
-      return shipments.filter(shipment => shipment.status === 'declined');
+      return shipments.filter(shipment => 
+        ['declined', 'rejected'].includes(shipment.status)
+      );
     }
+    
     return shipments;
   };
   
@@ -420,9 +588,8 @@ const TrackShipment = () => {
                 onValueChange={setActiveTab}
                 className="mb-6"
               >
-                <TabsList className="grid grid-cols-4 w-full max-w-md mx-auto">
-                  <TabsTrigger value="all">All Shipments</TabsTrigger>
-                  <TabsTrigger value="current">Current</TabsTrigger>
+                <TabsList className="grid grid-cols-3 w-full max-w-md mx-auto">
+                  <TabsTrigger value="all">Pending Shipments</TabsTrigger>
                   <TabsTrigger value="completed">Completed</TabsTrigger>
                   <TabsTrigger value="cancelled">Cancelled</TabsTrigger>
                 </TabsList>
@@ -447,7 +614,7 @@ const TrackShipment = () => {
                       </div>
                       <Badge className={`px-3 py-1.5 text-sm ${
                         shipment.status === 'pending' ? 'bg-yellow-500' : 
-                        shipment.status === 'approved' ? 'bg-blue-500' : 
+                        shipment.status === 'approved' ? 'bg-green-500' : 
                         shipment.status === 'in transit' ? 'bg-indigo-500' : 
                         shipment.status === 'delivered' ? 'bg-green-500' : 
                         'bg-red-500'
@@ -456,6 +623,7 @@ const TrackShipment = () => {
                         shipment.status === 'approved' ? 'Approved' :
                         shipment.status === 'in transit' ? 'In Transit' :
                         shipment.status === 'delivered' ? 'Delivered' :
+                        shipment.status === 'rejected' ? 'Rejected' :
                         'Declined'}
                       </Badge>
                     </div>
@@ -470,36 +638,21 @@ const TrackShipment = () => {
                         
                         <div className="flex justify-between text-xs text-gray-500 mt-2">
                           <div className="flex flex-col items-center">
-                            <span className={`h-5 w-5 rounded-full flex items-center justify-center mb-1 ${
-                              calculateProgress(shipment.status) >= 10 ? 'bg-green-500 text-white' : 'bg-gray-200'
-                            }`}>
-                              {calculateProgress(shipment.status) >= 10 && <Check className="h-3 w-3" />}
+                            <span className="h-5 w-5 rounded-full flex items-center justify-center mb-1 bg-green-500 text-white">
+                              <Check className="h-3 w-3" />
                             </span>
                             <span>Ordered</span>
                           </div>
                           <div className="flex flex-col items-center">
                             <span className={`h-5 w-5 rounded-full flex items-center justify-center mb-1 ${
-                              calculateProgress(shipment.status) >= 30 ? 'bg-green-500 text-white' : 'bg-gray-200'
+                              shipment.status === 'approved' || shipment.status === 'in transit' || shipment.status === 'delivered' ? 'bg-green-500 text-white' : 
+                              shipment.status === 'declined' || shipment.status === 'rejected' ? 'bg-red-500 text-white' : 
+                              'bg-gray-200'
                             }`}>
-                              {calculateProgress(shipment.status) >= 30 && <Check className="h-3 w-3" />}
+                              {(shipment.status === 'approved' || shipment.status === 'in transit' || shipment.status === 'delivered') && <Check className="h-3 w-3" />}
+                              {(shipment.status === 'declined' || shipment.status === 'rejected') && <X className="h-3 w-3" />}
                             </span>
                             <span>Approved</span>
-                          </div>
-                          <div className="flex flex-col items-center">
-                            <span className={`h-5 w-5 rounded-full flex items-center justify-center mb-1 ${
-                              calculateProgress(shipment.status) >= 60 ? 'bg-green-500 text-white' : 'bg-gray-200'
-                            }`}>
-                              {calculateProgress(shipment.status) >= 60 && <Check className="h-3 w-3" />}
-                            </span>
-                            <span>In Transit</span>
-                          </div>
-                          <div className="flex flex-col items-center">
-                            <span className={`h-5 w-5 rounded-full flex items-center justify-center mb-1 ${
-                              calculateProgress(shipment.status) >= 100 ? 'bg-green-500 text-white' : 'bg-gray-200'
-                            }`}>
-                              {calculateProgress(shipment.status) >= 100 && <Check className="h-3 w-3" />}
-                            </span>
-                            <span>Delivered</span>
                           </div>
                         </div>
                       </div>
@@ -509,7 +662,14 @@ const TrackShipment = () => {
                         <MapPin className="h-5 w-5 text-blue-500 mt-0.5 mr-3 flex-shrink-0" />
                         <div>
                           <p className="font-medium text-blue-700">Current Status</p>
-                          <p className="text-blue-600">{getCurrentLocation(shipment)}</p>
+                          <p className={`${(shipment.status === 'declined' || shipment.status === 'rejected') ? 'text-red-600' : 'text-blue-600'}`}>
+                            {getCurrentLocation(shipment)}
+                          </p>
+                          {shipment.status === 'approved' && shipment.origin_port && (
+                            <p className="text-blue-500 text-sm mt-1">
+                              Ready to ship from {shipment.origin_port}
+                            </p>
+                          )}
                           {shipment.status === 'in transit' && shipment.estimated_delivery && (
                             <p className="text-blue-500 text-sm mt-1">
                               Expected delivery by {formatDateTime(shipment.estimated_delivery)}
@@ -517,10 +677,18 @@ const TrackShipment = () => {
                           )}
                           
                           {/* Time Elapsed */}
-                          {shipment.status !== 'delivered' && shipment.status !== 'declined' && shipment.created_at && (
+                          {shipment.status !== 'delivered' && shipment.status !== 'declined' && shipment.status !== 'rejected' && shipment.created_at && (
                             <p className="text-blue-500 text-sm mt-1 flex items-center">
                               <Clock12 className="h-3 w-3 mr-1" />
                               Time elapsed: {getTimeElapsed(shipment.created_at)}
+                            </p>
+                          )}
+                          
+                          {/* Rejection/Decline Date */}
+                          {(shipment.status === 'declined' || shipment.status === 'rejected') && (shipment.rejected_at || shipment.declined_at) && (
+                            <p className="text-red-500 text-sm mt-1 flex items-center">
+                              <Clock12 className="h-3 w-3 mr-1" />
+                              Rejected on: {formatDateTime(shipment.rejected_at || shipment.declined_at)}
                             </p>
                           )}
                         </div>
@@ -549,7 +717,11 @@ const TrackShipment = () => {
                           <MapPin className="h-5 w-5 text-gray-400 mr-2" />
                           <div>
                             <p className="text-sm text-gray-500">Origin</p>
-                            <p className="font-medium">{shipment.origin_port || 'N/A'}</p>
+                            <p className="font-medium">
+                              {shipment.status === 'pending' ? 
+                                'Awaiting company approval' : 
+                                shipment.origin_port || 'Not specified yet'}
+                            </p>
                           </div>
                         </div>
                         <div className="flex items-center">
@@ -653,7 +825,7 @@ const getTimeElapsed = (createdAt) => {
   
   const created = new Date(createdAt);
   const now = new Date();
-  const diffMs = now - created;
+  const diffMs = now.getTime() - created.getTime(); // Use getTime() to get timestamps in milliseconds
   
   // Convert to days/hours/minutes
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));

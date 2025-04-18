@@ -89,7 +89,7 @@ const Navigation: React.FC<NavigationProps> = ({ isAuthenticated = false, userTy
               </>
             ) : (
               <>
-                <Link to="/auth" className="text-gray-700 hover:text-trade-blue flex items-center px-3 py-2">
+                <Link to="/auth" className="text-trade-navy font-medium hover:text-trade-blue flex items-center px-3 py-2">
                   <LogIn className="h-4 w-4 mr-1" />
                   <span>Login</span>
                 </Link>
@@ -144,7 +144,7 @@ const Navigation: React.FC<NavigationProps> = ({ isAuthenticated = false, userTy
               </>
             ) : (
               <>
-                <Link to="/auth" className="text-gray-700 hover:text-trade-blue block px-3 py-2 rounded-md text-base font-medium">
+                <Link to="/auth" className="text-trade-navy font-medium hover:text-trade-blue block px-3 py-2 rounded-md text-base font-medium">
                   Login
                 </Link>
                 <Link to="/auth?register=true" className="text-gray-700 hover:text-trade-blue block px-3 py-2 rounded-md text-base font-medium">

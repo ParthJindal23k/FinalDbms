@@ -2,21 +2,105 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
   Plus, 
-  Filter,
   Map,
   User,
   Settings,
-  Truck
+  Truck,
+  Package,
+  BarChart3,
+  DollarSign,
+  Globe,
+  ShieldCheck,
+  Clock,
+  FileText,
+  Info,
+  Loader2
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { useToast } from '../components/ui/use-toast';
 import Navigation from '../components/Navigation';
 import Footer from '../components/Footer';
 import ShipmentStatusCard from '../components/dashboard/ShipmentStatusCard';
-import TransactionsList from '../components/dashboard/TransactionsList';
 import StatsCards from '../components/dashboard/StatsCards';
 import { useQuery } from '@tanstack/react-query';
 import { get } from '../lib/api';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '../components/ui/card';
+import { Progress } from '../components/ui/progress';
+
+// Generate a unique ID (same as TrackShipment.tsx)
+const generateUniqueId = () => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
+
+// Sample shipment data if no shipments exist
+const getSampleShipment = () => {
+  const creationDate = new Date();
+  const estimatedDelivery = new Date(creationDate);
+  estimatedDelivery.setDate(creationDate.getDate() + 7);
+  
+  return {
+    id: generateUniqueId(),
+    productName: "Sample Electronics Package",
+    quantity: 10,
+    originPort: "Shanghai",
+    destinationPort: "Los Angeles",
+    status: "pending",
+    estimatedDelivery: estimatedDelivery.toLocaleDateString(),
+    progressPercentage: 25,
+    isSample: true
+  };
+};
+
+// Function to get shipments from localStorage (similar to TrackShipment.tsx)
+const getLocalShipments = () => {
+  const userEmail = localStorage.getItem("userEmail") || "";
+  const userShipmentsKey = `userShipments_${userEmail}`;
+  
+  try {
+    const shipmentData = localStorage.getItem(userShipmentsKey);
+    if (shipmentData) {
+      const storedShipments = JSON.parse(shipmentData);
+      if (storedShipments.length > 0) {
+        // Map the data to match our ShipmentStatusCard props format
+        return storedShipments.map(shipment => ({
+          id: shipment.id,
+          productName: shipment.product_name || "Unknown Product",
+          quantity: shipment.quantity || 1,
+          originPort: shipment.origin_port || "Unknown Origin",
+          destinationPort: shipment.destination_port || "Unknown Destination",
+          status: shipment.status || "pending",
+          estimatedDelivery: shipment.estimated_delivery ? new Date(shipment.estimated_delivery).toLocaleDateString() : null,
+          progressPercentage: calculateProgress(shipment.status)
+        }));
+      }
+    }
+  } catch (err) {
+    console.error("Error retrieving stored shipments:", err);
+  }
+  
+  return [];
+};
+
+// Calculate progress percentage based on status
+const calculateProgress = (status) => {
+  switch (status?.toLowerCase()) {
+    case 'approved':
+    case 'in transit':
+      return 50;
+    case 'delivered':
+      return 100;
+    case 'declined':
+    case 'rejected':
+      return 0;
+    case 'pending':
+    default:
+      return 25;
+  }
+};
 
 const fetchUserStats = async () => {
   try {
@@ -25,8 +109,6 @@ const fetchUserStats = async () => {
     console.error("Error fetching user stats:", error);
     // Return default stats if request fails
     return {
-      totalTransactions: 0,
-      transactionValue: 0,
       activeShipments: 0,
       pendingCustoms: 0
     };
@@ -38,15 +120,6 @@ const fetchUserShipments = async () => {
     return await get('/dashboard/user-shipments');
   } catch (error) {
     console.error("Error fetching shipments:", error);
-    return [];
-  }
-};
-
-const fetchUserTransactions = async () => {
-  try {
-    return await get('/dashboard/user-transactions');
-  } catch (error) {
-    console.error("Error fetching transactions:", error);
     return [];
   }
 };
@@ -81,18 +154,6 @@ const UserDashboard = () => {
     queryFn: fetchUserStats,
   });
 
-  // Fetch shipments
-  const { data: shipments, error: shipmentsError, isLoading: shipmentsLoading } = useQuery({
-    queryKey: ['userShipments'],
-    queryFn: fetchUserShipments,
-  });
-
-  // Fetch transactions
-  const { data: transactions, error: transactionsError, isLoading: transactionsLoading } = useQuery({
-    queryKey: ['userTransactions'],
-    queryFn: fetchUserTransactions,
-  });
-
   useEffect(() => {
     // If profile data is loaded, use that email (it's the most up-to-date)
     if (profileData && profileData.email) {
@@ -113,18 +174,16 @@ const UserDashboard = () => {
       });
     }
 
-    if (statsError || shipmentsError || transactionsError) {
+    if (statsError) {
       toast({
         title: "Error loading dashboard data",
         description: "Please try again or contact support.",
         variant: "destructive",
       });
     }
-  }, [profileData, profileError, statsError, shipmentsError, transactionsError, toast]);
+  }, [profileData, profileError, statsError, toast]);
 
   const stats = statsData || {
-    totalTransactions: 0,
-    transactionValue: 0,
     activeShipments: 0,
     pendingCustoms: 0
   };
@@ -138,13 +197,18 @@ const UserDashboard = () => {
           {/* Header */}
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8">
             <div>
-              <h1 className="text-2xl font-bold mb-2">Welcome back !</h1>
-              <p className="text-gray-600">Here's what's happening with your shipments today.</p>
+              <h1 className="text-2xl font-bold mb-2">Welcome back, {userName.includes('@') ? userName.split('@')[0] : userName}!</h1>
+              <p className="text-gray-600">Manage your global trading operations from one place.</p>
             </div>
             <div className="flex mt-4 md:mt-0 space-x-2">
-              <Button variant="outline" size="sm" className="flex items-center">
-                <Filter className="mr-1 h-4 w-4" />
-                Filter
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="flex items-center"
+                onClick={() => navigate('/track-shipments')}
+              >
+                <Truck className="mr-1 h-4 w-4" />
+                Track Shipments
               </Button>
               <Button 
                 size="sm" 
@@ -166,76 +230,32 @@ const UserDashboard = () => {
             <StatsCards stats={stats} userType="user" />
           )}
           
-          {/* Shipments Section */}
-          <div className="mb-8">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold">Your Shipments</h2>
-              <Link to="#">
-                <Button variant="link" className="text-trade-blue">View All</Button>
+          {/* Quick Actions */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8">
+            <Button variant="outline" className="h-auto py-4 flex flex-col items-center justify-center" asChild>
+              <Link to="/new-shipment">
+                <Plus className="h-6 w-6 text-green-600 mb-2" />
+                <span>Create Shipment</span>
               </Link>
-            </div>
-            {shipmentsLoading ? (
-              <div className="text-center py-4">Loading shipments...</div>
-            ) : shipments && shipments.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {shipments.map((shipment) => (
-                  <ShipmentStatusCard key={shipment.id} shipment={shipment} />
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-4 bg-white rounded-lg shadow-sm">
-                <p className="text-gray-500">No shipments found</p>
-              </div>
-            )}
-          </div>
-          
-          {/* Transactions Section */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2">
-              {transactionsLoading ? (
-                <div className="text-center py-4">Loading transactions...</div>
-              ) : (
-                <TransactionsList transactions={transactions || []} />
-              )}
-            </div>
-            
-            {/* Quick Links */}
-            <div className="space-y-6">
-              <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-                <h3 className="font-semibold mb-4">Quick Actions</h3>
-                <div className="space-y-2">
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    className="flex items-center"
-                    onClick={() => navigate('/track-shipments')}
-                  >
-                    <Truck className="mr-1 h-4 w-4" />
-                    Track Shipments
-                  </Button>
-                  <Button variant="outline" className="w-full justify-start text-left">
-                    <Plus className="mr-2 h-4 w-4 text-green-600" />
-                    Create New Transaction
-                  </Button>
-                  <Button variant="outline" className="w-full justify-start text-left">
-                    <User className="mr-2 h-4 w-4 text-purple-600" />
-                    Update Profile
-                  </Button>
-                  <Button variant="outline" className="w-full justify-start text-left">
-                    <Settings className="mr-2 h-4 w-4 text-gray-600" />
-                    Account Settings
-                  </Button>
-                </div>
-              </div>
-              
-              <div className="bg-gradient-to-r from-trade-blue to-trade-teal text-white rounded-lg p-6">
-                <h3 className="font-semibold mb-2">Need Help?</h3>
-                <p className="text-sm mb-4 opacity-90">Our support team is here to assist you with any questions.</p>
-                <Button className="bg-white text-trade-blue hover:bg-gray-100 w-full">
-                  Contact Support
-                </Button>
-              </div>
-            </div>
+            </Button>
+            <Button variant="outline" className="h-auto py-4 flex flex-col items-center justify-center" asChild>
+              <Link to="/track-shipments">
+                <Truck className="h-6 w-6 text-blue-600 mb-2" />
+                <span>Track Shipments</span>
+              </Link>
+            </Button>
+            <Button variant="outline" className="h-auto py-4 flex flex-col items-center justify-center" asChild>
+              <Link to="/documents">
+                <FileText className="h-6 w-6 text-purple-600 mb-2" />
+                <span>Documents</span>
+              </Link>
+            </Button>
+            <Button variant="outline" className="h-auto py-4 flex flex-col items-center justify-center" asChild>
+              <Link to="/settings">
+                <Settings className="h-6 w-6 text-gray-600 mb-2" />
+                <span>Settings</span>
+              </Link>
+            </Button>
           </div>
         </div>
       </main>

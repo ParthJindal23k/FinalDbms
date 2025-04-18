@@ -31,7 +31,7 @@ const Index = () => {
                   </Button>
                 </Link>
                 <Link to="/auth">
-                  <Button size="lg" variant="outline" className="border-white text-white hover:bg-white/10">
+                  <Button size="lg" variant="outline" className="bg-white text-trade-blue hover:bg-gray-100">
                     Sign In
                   </Button>
                 </Link>

@@ -6,6 +6,7 @@ import {
   updateShipment,
   deleteShipment,
   createCustoms,
+  getProductRequests
 } from "../controllers/shipmentController.js";
 import authMiddleware from "../utils/authMiddleware.js";
 import { loginCompany } from "../controllers/authController.js";
@@ -18,5 +19,6 @@ router.get("/:id", authMiddleware, getShipmentById);
 router.put("/:id", authMiddleware, updateShipment);
 router.delete("/:id", authMiddleware, deleteShipment);
 router.post("/customs", authMiddleware, createCustoms);
+router.get("/product-requests", authMiddleware, getProductRequests);
 
 export default router;

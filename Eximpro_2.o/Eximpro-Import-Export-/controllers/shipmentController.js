@@ -209,5 +209,35 @@ export const createCustoms = async (req, res) => {
       details: error.message,
     });
   }
+};
+
+export const getProductRequests = async (req, res) => {
+  const companyId = req.query.companyId;
+  
+  if (!companyId) {
+    return res.status(400).json({ error: "Company ID is required" });
+  }
+
+  try {
+    const result = await pool.query(`
+      SELECT 
+        s.id,
+        p.name as product_name,
+        s.quantity,
+        u.email as user_email,
+        s.created_at as request_date,
+        s.status
+      FROM shipments s
+      JOIN products p ON s.product_id = p.id
+      JOIN users u ON s.user_id = u.id
+      WHERE s.company_id = $1 AND s.status = 'pending'
+      ORDER BY s.created_at DESC
+    `, [companyId]);
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Get Product Requests Error:", error);
+    res.status(500).json({ error: "Failed to fetch product requests" });
+  }
 };   
 
