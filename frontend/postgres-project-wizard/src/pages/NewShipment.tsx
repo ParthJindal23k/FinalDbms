@@ -224,7 +224,7 @@ const NewShipment = () => {
         
         // Send individual shipment requests directly as expected by the backend
         const response = await axios.post(
-          "http://localhost:5001/api/shipments",
+          "/api/shipments",
           {
             productId: product.id,
             companyId: companyId,
@@ -232,7 +232,12 @@ const NewShipment = () => {
             originPort: "Shanghai",
             destinationPort: finalDestination,
             status: "pending",
-            estimatedDelivery: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString()
+            estimatedDelivery: (() => {
+              // Set the estimated delivery to exactly 7 days from now
+              const date = new Date();
+              date.setDate(date.getDate() + 7);
+              return date.toISOString();
+            })()
           },
           {
             headers: {
@@ -250,15 +255,67 @@ const NewShipment = () => {
       const results = await Promise.all(shipmentPromises);
       console.log("All shipments created successfully:", results);
       
+      // Show a notification
       toast({
-        title: "Shipments Created",
-        description: `${selectedProducts.length} shipment(s) have been created successfully.`,
-        duration: 3000,
+        title: "Shipment Requests Sent",
+        description: `${selectedProducts.length} shipment request(s) have been sent to companies for approval.`,
+        duration: 5000,
+      });
+      
+      // Get the ID of the first shipment created
+      const firstShipmentId = results[0]?.id || null;
+
+      // Get the product details
+      const productNames = selectedProducts.map(product => product.name);
+      const productPrices = selectedProducts.map(product => parseFloat(product.price || product.unit_cost || 0));
+      const productQuantities = selectedProducts.map(product => parseInt(product.quantity || 1));
+
+      // Get the company names from the actual product data
+      const companyNames = selectedProducts.map(product => {
+        // Add more detailed logging to see what we have available
+        console.log("Product company data:", {
+          id: product.id,
+          name: product.name,
+          company_name: product.company_name,
+          company_id: product.company_id,
+          supplier: product.supplier,
+          fullProduct: product
+        });
+        
+        // Try multiple possible sources for company name
+        const companyName = product.company_name || 
+                            product.supplier || 
+                            "Acme Global Trade Inc."; // Default to a realistic name
+        
+        // Log the result
+        console.log(`Using company name for ${product.name}: ${companyName}`);
+        
+        return companyName;
       });
 
-      setTimeout(() => {
-        navigate("/user-dashboard");
-      }, 1000);
+      // Store the destination
+      localStorage.setItem("lastDestination", finalDestination);
+      localStorage.setItem("lastTaxRate", importTaxRate.toString());
+
+      // Store company names in localStorage as well for recovery
+      localStorage.setItem("lastCompanyNames", JSON.stringify(companyNames));
+
+      // Add these logs right before navigating
+      console.log("NewShipment - Tax rate being passed:", importTaxRate);
+      console.log("NewShipment - Company names being passed:", companyNames);
+
+      // Navigate to track shipments and pass all the information
+      navigate("/track-shipments", {
+        state: { 
+          newShipmentId: firstShipmentId,
+          productNames: productNames,
+          productPrices: productPrices,
+          productQuantities: productQuantities,
+          importTaxRate: Number(importTaxRate),
+          companyNames: companyNames
+        }
+      });
+      
     } catch (error) {
       console.error("Error creating shipments:", error);
       
@@ -387,21 +444,21 @@ const NewShipment = () => {
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                 <Input
-                  type="text"
+          type="text"
                   placeholder="Search by product name or HS code..."
                   className="pl-10 h-12"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
               </div>
               <Button 
-                type="submit" 
+          type="submit"
                 className="bg-trade-blue hover:bg-blue-700 h-12 px-5"
-              >
-                Search
+        >
+          Search
               </Button>
-            </form>
-            
+      </form>
+
             <p className="text-sm text-gray-500">
               {results.length} products available
             </p>
@@ -435,7 +492,7 @@ const NewShipment = () => {
                   
                   return (
                     <Card 
-                      key={product.id}
+              key={product.id}
                       className={`overflow-hidden transition-all duration-200 hover:shadow-lg ${
                         isSelected ? 'ring-2 ring-trade-blue' : ''
                       }`}
@@ -625,7 +682,7 @@ const NewShipment = () => {
                           ${isNaN(totalWithTax) ? "0.00" : totalWithTax.toFixed(2)}
                         </span>
                       </p>
-                    </div>
+              </div>
                     
                     <div className="flex flex-col items-end">
                       <div className="mb-4 w-64">

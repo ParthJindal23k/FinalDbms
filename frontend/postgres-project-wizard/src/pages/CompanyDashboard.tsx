@@ -9,6 +9,9 @@ import {
   FileText,
   Activity,
   Package,
+  ShoppingCart,
+  Check,
+  X
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { useToast } from "../components/ui/use-toast";
@@ -37,6 +40,8 @@ import {
 import { Input } from "../components/ui/input";
 import { AddProductModal } from "./AddProduct";
 import { Label } from "../components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Badge } from "../components/ui/badge";
 
 interface ApiShipment {
   id?: string;
@@ -66,6 +71,16 @@ interface FormattedShipment {
   progressPercentage: number;
 }
 
+// Interface for product requests
+interface ProductRequest {
+  id: string;
+  productName: string;
+  quantity: number;
+  userEmail: string;
+  requestDate: string;
+  status: 'pending' | 'approved' | 'rejected';
+}
+
 const fetchCompanyProfile = async () => {
   try {
     // Call the backend API to get the company profile
@@ -75,7 +90,7 @@ const fetchCompanyProfile = async () => {
   } catch (error) {
     console.error("Error fetching company profile:", error);
     // If there's an error, fall back to a default but log the error
-    return { name: "!", id: "", email: "" };
+    return { name: "Company", id: "", email: "" };
   }
 };
 
@@ -175,6 +190,38 @@ const fetchCompanyProducts = async () => {
   return response.json();
 };
 
+// Add this new function to fetch product requests
+const fetchProductRequests = async () => {
+  // For now, return mock data
+  // In a real implementation, this would call the backend API
+  return [
+    {
+      id: "req-001",
+      productName: "Wireless Gaming Mouse",
+      quantity: 25,
+      userEmail: "john@example.com",
+      requestDate: "2023-11-25",
+      status: "pending"
+    },
+    {
+      id: "req-002",
+      productName: "Mechanical Keyboard",
+      quantity: 10,
+      userEmail: "sarah@example.com",
+      requestDate: "2023-11-23",
+      status: "pending"
+    },
+    {
+      id: "req-003",
+      productName: "USB-C Hub",
+      quantity: 50,
+      userEmail: "michael@example.com",
+      requestDate: "2023-11-20",
+      status: "approved"
+    }
+  ] as ProductRequest[];
+};
+
 const CompanyDashboard = () => {
   const { toast } = useToast();
   const [companyName, setCompanyName] = useState("Company");
@@ -244,6 +291,16 @@ const CompanyDashboard = () => {
     stock: "",
     hsCode: "",
     unitCost: ""
+  });
+
+  // Add this new query for product requests
+  const {
+    data: productRequests,
+    error: productRequestsError,
+    isLoading: productRequestsLoading,
+  } = useQuery({
+    queryKey: ["productRequests"],
+    queryFn: fetchProductRequests,
   });
 
   useEffect(() => {
@@ -469,6 +526,25 @@ const CompanyDashboard = () => {
     }
   };
 
+  // Add these new methods for handling product requests
+  const handleApproveRequest = (requestId: string) => {
+    // In a real implementation, this would make an API call to update the request status
+    console.log(`Approving request: ${requestId}`);
+    toast({
+      title: "Request Approved",
+      description: "The product request has been approved.",
+    });
+  };
+
+  const handleRejectRequest = (requestId: string) => {
+    // In a real implementation, this would make an API call to update the request status
+    console.log(`Rejecting request: ${requestId}`);
+    toast({
+      title: "Request Rejected",
+      description: "The product request has been rejected.",
+    });
+  };
+
   const stats = statsData || {
     totalTransactions: 0,
     transactionValue: 0,
@@ -575,6 +651,7 @@ const CompanyDashboard = () => {
               <TabsTrigger value="products">Products</TabsTrigger>
               <TabsTrigger value="transactions">Transactions</TabsTrigger>
               <TabsTrigger value="shipments">Shipments</TabsTrigger>
+              <TabsTrigger value="requests">Product Requests</TabsTrigger>
             </TabsList>
             <TabsContent value="overview">
               {statsLoading ? (
@@ -665,6 +742,91 @@ const CompanyDashboard = () => {
               ) : (
                 <div className="text-center py-4 bg-white rounded-lg shadow-sm">
                   <p className="text-gray-500">No shipments found</p>
+                </div>
+              )}
+            </TabsContent>
+            <TabsContent value="requests">
+              {productRequestsLoading ? (
+                <div className="text-center py-4">Loading product requests...</div>
+              ) : productRequestsError ? (
+                <div className="text-center py-4 text-red-500">
+                  Error loading product requests
+                </div>
+              ) : productRequests && productRequests.length > 0 ? (
+                <div className="grid gap-6">
+                  {productRequests.map((request) => (
+                    <Card key={request.id} className="shadow-sm">
+                      <CardHeader className="pb-3">
+                        <div className="flex justify-between items-center">
+                          <CardTitle className="text-lg">{request.productName}</CardTitle>
+                          <Badge 
+                            className={`px-2 py-1 ${
+                              request.status === 'pending' 
+                                ? 'bg-yellow-500' 
+                                : request.status === 'approved' 
+                                  ? 'bg-green-500' 
+                                  : 'bg-red-500'
+                            }`}
+                          >
+                            {request.status === 'pending' ? 'Pending' : 
+                             request.status === 'approved' ? 'Approved' : 'Rejected'}
+                          </Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                          <div>
+                            <p className="text-sm text-gray-500">Request ID</p>
+                            <p className="font-medium">{request.id}</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-gray-500">Quantity</p>
+                            <p className="font-medium">{request.quantity} units</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-gray-500">User</p>
+                            <p className="font-medium">{request.userEmail}</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-gray-500">Date Requested</p>
+                            <p className="font-medium">{request.requestDate}</p>
+                          </div>
+                        </div>
+                        
+                        {request.status === 'pending' && (
+                          <div className="flex justify-end space-x-2 mt-2">
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              className="border-red-500 text-red-500 hover:bg-red-50"
+                              onClick={() => handleRejectRequest(request.id)}
+                            >
+                              <X className="h-4 w-4 mr-1" />
+                              Reject
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              className="bg-green-500 hover:bg-green-600"
+                              onClick={() => handleApproveRequest(request.id)}
+                            >
+                              <Check className="h-4 w-4 mr-1" />
+                              Approve
+                            </Button>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 bg-white rounded-lg shadow">
+                  <div className="mb-4">
+                    <ShoppingCart className="h-12 w-12 mx-auto text-gray-400" />
+                  </div>
+                  <h3 className="text-lg font-medium mb-2">No Product Requests</h3>
+                  <p className="text-gray-500 mb-4">
+                    You don't have any product requests from users at the moment.
+                  </p>
                 </div>
               )}
             </TabsContent>

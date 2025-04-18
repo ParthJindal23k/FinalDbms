@@ -10,6 +10,7 @@ import CompanyDashboard from "./pages/CompanyDashboard";
 import NotFound from "./pages/NotFound";
 import NewShipment from "./pages/NewShipment";
 import AddProduct from "./pages/AddProduct"; // ✅ Added import
+import TrackShipment from "./pages/TrackShipment";
 
 // Configure query client with retries disabled for development
 const queryClient = new QueryClient({
@@ -34,6 +35,7 @@ const App = () => (
           <Route path="/company-dashboard" element={<CompanyDashboard />} />
           <Route path="/new-shipment" element={<NewShipment />} />
           <Route path="/add-product" element={<AddProduct />} />
+          <Route path="/track-shipments" element={<TrackShipment />} />
 
           <Route path="*" element={<NotFound />} />
         </Routes>

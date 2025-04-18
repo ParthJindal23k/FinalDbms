@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { 
   Plus, 
   Filter,
   Map,
   User,
-  Settings
+  Settings,
+  Truck
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { useToast } from '../components/ui/use-toast';
@@ -65,6 +66,8 @@ const UserDashboard = () => {
     // Initialize with email from localStorage if available
     return localStorage.getItem('userEmail') || '!';
   });
+  
+  const navigate = useNavigate();
   
   // Fetch user profile
   const { data: profileData, error: profileError } = useQuery({
@@ -143,9 +146,15 @@ const UserDashboard = () => {
                 <Filter className="mr-1 h-4 w-4" />
                 Filter
               </Button>
-              <Button size="sm" className="bg-trade-blue hover:bg-blue-700 flex items-center">
-                <Plus className="mr-1 h-4 w-4" />
-                New Shipment
+              <Button 
+                size="sm" 
+                className="bg-trade-blue hover:bg-blue-700 flex items-center"
+                asChild
+              >
+                <Link to="/new-shipment">
+                  <Plus className="mr-1 h-4 w-4" />
+                  New Shipment
+                </Link>
               </Button>
             </div>
           </div>
@@ -195,9 +204,14 @@ const UserDashboard = () => {
               <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
                 <h3 className="font-semibold mb-4">Quick Actions</h3>
                 <div className="space-y-2">
-                  <Button variant="outline" className="w-full justify-start text-left">
-                    <Map className="mr-2 h-4 w-4 text-trade-blue" />
-                    Track a Shipment
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="flex items-center"
+                    onClick={() => navigate('/track-shipments')}
+                  >
+                    <Truck className="mr-1 h-4 w-4" />
+                    Track Shipments
                   </Button>
                   <Button variant="outline" className="w-full justify-start text-left">
                     <Plus className="mr-2 h-4 w-4 text-green-600" />
