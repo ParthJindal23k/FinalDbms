@@ -22,6 +22,7 @@ import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Progress } from "../components/ui/progress";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui/tabs";
+import DataDisplay from "../components/debug/DataDisplay";
 
 // Generate a truly unique ID with v4 UUID pattern
 const generateUniqueId = () => {
@@ -213,6 +214,79 @@ const TrackShipment = () => {
           
           console.log("Enhanced shipments with company data:", enhancedShipments);
           
+          // Fix missing cost fields in the API data
+          const enhancedShipmentsWithCosts = await Promise.all(enhancedShipments.map(async (shipment) => {
+            // If cost data is missing, attempt to calculate it
+            if (shipment.unit_cost === undefined || shipment.subtotal === undefined || 
+                shipment.tax_amount === undefined || shipment.total_cost === undefined) {
+              
+              console.log(`Adding missing cost data to shipment ${shipment.id}`);
+              
+              // Get tax rate
+              const taxRate = Number(localStorage.getItem("lastTaxRate") || "0");
+              
+              // Try to get product price from API if we have product_id
+              let unitCost = shipment.product_price || shipment.price || 0;
+              
+              if ((!unitCost || unitCost === 0) && shipment.product_id && token) {
+                try {
+                  console.log(`Fetching product data for shipment ${shipment.id} (product ${shipment.product_id})`);
+                  const productResponse = await fetch(`http://localhost:5001/api/products/${shipment.product_id}`, {
+                    headers: {
+                      Authorization: `Bearer ${token}`
+                    }
+                  });
+                  
+                  if (productResponse.ok) {
+                    const productData = await productResponse.json();
+                    console.log(`Got product data:`, productData);
+                    
+                    // Use the product price if available
+                    if (productData.price) {
+                      unitCost = Number(productData.price);
+                    } else if (productData.unit_cost) {
+                      unitCost = Number(productData.unit_cost);
+                    } else {
+                      unitCost = 25; // Default to $25 if no price found
+                    }
+                  } else {
+                    console.log(`Failed to get product data, using default price`);
+                    unitCost = 25; // Default to $25 if API call fails
+                  }
+                } catch (error) {
+                  console.error(`Error fetching product data:`, error);
+                  unitCost = 25; // Default to $25 if API call errors
+                }
+              } else if (!unitCost || unitCost === 0) {
+                // If we still don't have a unit cost, use default
+                unitCost = 25; // Default to $25
+              }
+              
+              // Calculate subtotal
+              const quantity = shipment.quantity || 1;
+              const subtotal = unitCost * quantity;
+              
+              // Calculate tax amount
+              const taxAmount = (subtotal * taxRate) / 100;
+              
+              // Calculate total with tax
+              const totalWithTax = subtotal + taxAmount;
+              
+              console.log(`Added cost data: unit_cost=${unitCost}, subtotal=${subtotal}, tax_amount=${taxAmount}, total_cost=${totalWithTax}`);
+              
+              return {
+                ...shipment,
+                unit_cost: unitCost,
+                subtotal: subtotal,
+                tax_rate: taxRate,
+                tax_amount: taxAmount,
+                total_cost: totalWithTax
+              };
+            }
+            
+            return shipment;
+          }));
+          
           // Check if any shipments have approval data in localStorage
           const companyApprovalsKey = 'companyApprovals';
           const companyApprovals = localStorage.getItem(companyApprovalsKey);
@@ -221,7 +295,7 @@ const TrackShipment = () => {
             try {
               const approvals = JSON.parse(companyApprovals);
               // Update any shipments that might have more recent approval/rejection data in localStorage
-              const finalShipments = enhancedShipments.map(shipment => {
+              const finalShipments = enhancedShipmentsWithCosts.map(shipment => {
                 const approvalData = approvals[shipment.id];
                 
                 // Check both pending and other states - approval data in localStorage should override API data
@@ -249,10 +323,10 @@ const TrackShipment = () => {
               setShipments(finalShipments);
             } catch (approvalErr) {
               console.error("Error processing approval data:", approvalErr);
-              setShipments(enhancedShipments);
+              setShipments(enhancedShipmentsWithCosts);
             }
           } else {
-            setShipments(enhancedShipments);
+            setShipments(enhancedShipmentsWithCosts);
           }
           
           setLoading(false);
@@ -354,6 +428,14 @@ const TrackShipment = () => {
         const productPrices = location.state.productPrices || [];
         const productQuantities = location.state.productQuantities || [];
         const destinationPort = localStorage.getItem("lastDestination") || "Your Selected Destination";
+        
+        // Debug logging for new shipment data
+        console.log("DEBUG NEW SHIPMENT DATA:", {
+          productNames,
+          productPrices,
+          productQuantities,
+          taxRate
+        });
         
         // Generate new shipments
         const newShipments = productNames.map((name, index) => {
@@ -603,6 +685,9 @@ const TrackShipment = () => {
                       shipment.isNew ? 'ring-2 ring-blue-500' : ''
                     }`}
                   >
+                    {/* Debug component to log data */}
+                    <DataDisplay data={shipment} label={`Shipment-${shipment.id?.slice(0, 8)}`} />
+                    
                     {/* Shipment Header */}
                     <div className="bg-gray-50 border-b px-6 py-4 flex justify-between items-center">
                       <div>
@@ -748,54 +833,47 @@ const TrackShipment = () => {
                           </div>
                         )}
                         
-                        {/* Unit Cost */}
-                        {shipment.unit_cost !== undefined && (
-                          <div className="flex items-center">
-                            <DollarSign className="h-5 w-5 text-gray-400 mr-2" />
-                            <div>
-                              <p className="text-sm text-gray-500">Unit Cost</p>
-                              <p className="font-medium">${parseFloat(shipment.unit_cost).toFixed(2)} per unit</p>
-                            </div>
+                        <div className="flex items-center">
+                          <DollarSign className="h-5 w-5 text-gray-400 mr-2" />
+                          <div>
+                            <p className="text-sm text-gray-500">Unit Cost</p>
+                            <p className="font-medium">${typeof shipment.unit_cost === 'number' ? shipment.unit_cost.toFixed(2) : "0.00"} per unit</p>
                           </div>
-                        )}
+                        </div>
                         
-                        {/* Subtotal */}
-                        {shipment.subtotal !== undefined && (
-                          <div className="flex items-center">
-                            <DollarSign className="h-5 w-5 text-gray-400 mr-2" />
-                            <div>
-                              <p className="text-sm text-gray-500">Subtotal</p>
-                              <p className="font-medium">${parseFloat(shipment.subtotal).toFixed(2)}</p>
-                            </div>
+                        <div className="flex items-center">
+                          <DollarSign className="h-5 w-5 text-gray-400 mr-2" />
+                          <div>
+                            <p className="text-sm text-gray-500">Subtotal</p>
+                            <p className="font-medium">
+                              ${typeof shipment.subtotal === 'number' ? shipment.subtotal.toFixed(2) : 
+                                 ((typeof shipment.unit_cost === 'number' ? shipment.unit_cost : 0) * 
+                                  (typeof shipment.quantity === 'number' ? shipment.quantity : 1)).toFixed(2)}
+                            </p>
                           </div>
-                        )}
+                        </div>
                         
-                        {/* Tax information */}
-                        {shipment.tax_rate !== undefined && (
-                          <div className="flex items-center">
-                            <DollarSign className="h-5 w-5 text-gray-400 mr-2" />
-                            <div>
-                              <p className="text-sm text-gray-500">Import Tax ({shipment.tax_rate}%)</p>
-                              <p className="font-medium">${parseFloat(shipment.tax_amount || 0).toFixed(2)}</p>
-                            </div>
+                        <div className="flex items-center">
+                          <DollarSign className="h-5 w-5 text-gray-400 mr-2" />
+                          <div>
+                            <p className="text-sm text-gray-500">Import Tax ({shipment.tax_rate || 0}%)</p>
+                            <p className="font-medium">${typeof shipment.tax_amount === 'number' ? shipment.tax_amount.toFixed(2) : "0.00"}</p>
                           </div>
-                        )}
+                        </div>
                         
-                        {/* Total Cost */}
-                        {shipment.quantity !== undefined && shipment.unit_cost !== undefined && (
-                          <div className="flex items-center">
-                            <DollarSign className="h-5 w-5 text-gray-400 mr-2" />
-                            <div>
-                              <p className="text-sm text-gray-500">Total (with tax)</p>
-                              <p className="font-medium font-bold text-lg">
-                                ${shipment.total_cost !== undefined 
-                                  ? parseFloat(shipment.total_cost).toFixed(2) 
-                                  : ((parseFloat(shipment.unit_cost) * parseInt(shipment.quantity)) + 
-                                     (shipment.tax_amount || 0)).toFixed(2)}
-                              </p>
-                            </div>
+                        <div className="flex items-center">
+                          <DollarSign className="h-5 w-5 text-gray-400 mr-2" />
+                          <div>
+                            <p className="text-sm text-gray-500">Total (with tax)</p>
+                            <p className="font-medium font-bold text-lg">
+                              ${typeof shipment.total_cost === 'number' ? shipment.total_cost.toFixed(2) : 
+                                ((typeof shipment.subtotal === 'number' ? shipment.subtotal : 
+                                  ((typeof shipment.unit_cost === 'number' ? shipment.unit_cost : 0) * 
+                                   (typeof shipment.quantity === 'number' ? shipment.quantity : 1))) + 
+                                 (typeof shipment.tax_amount === 'number' ? shipment.tax_amount : 0)).toFixed(2)}
+                            </p>
                           </div>
-                        )}
+                        </div>
                       </div>
                       
                       {/* Supplier Info */}
